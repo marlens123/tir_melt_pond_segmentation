@@ -9,10 +9,9 @@ import json
 import numpy as np
 from .utils.data import Dataset
 from .utils.train_helpers import compute_class_weights, set_seed
-from models.smp.encoders import get_preprocessing_fn
 from .run_smp_finetune import train as unet_torch_train
 from .run_smp_finetune import validate as unet_torch_validate
-import models.smp as smp
+import segmentation_models_pytorch as smp
 import argparse
 from .utils.preprocess_helpers import get_preprocessing
 from sklearn.metrics import confusion_matrix
@@ -70,6 +69,19 @@ final_unet_sweep_configuration_rsd = {
     },
 }
 
+final_unet_sweep_configuration_no = {
+    "name": "sweep_unet_torch",
+    "method": "random",
+    "metric": {"goal": "maximize", "name": "val_melt_pond_iou"},
+    "parameters": {
+        "im_size": {"values": [480]},
+        "learning_rate": {"values": [0.001]},
+        "batch_size": {"values": [4]},
+        "optimizer": {"values": ["Adam"]},
+        "weight_decay": {"values": [0]},
+    },
+}
+
 final_unetplusplus_sweep_configuration_imnet = {
     "name": "sweep_unetplusplus_torch",
     "method": "random",
@@ -109,6 +121,19 @@ final_unetplusplus_sweep_configuration_rsd = {
     },
 }
 
+final_unetplusplus_sweep_configuration_no = {
+    "name": "sweep_unetplusplus_torch",
+    "method": "random",
+    "metric": {"goal": "maximize", "name": "val_melt_pond_iou"},
+    "parameters": {
+        "im_size": {"values": [480]},
+        "learning_rate": {"values": [0.0005]},
+        "batch_size": {"values": [4]},
+        "optimizer": {"values": ["Adam"]},
+        "weight_decay": {"values": [0]},
+    },
+}
+
 final_psp_sweep_configuration_imnet = {
     "name": "sweep_psp_torch",
     "method": "random",
@@ -145,6 +170,19 @@ final_psp_sweep_configuration_rsd = {
         "batch_size": {"values": [2]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0.001]},
+    },
+}
+
+final_psp_sweep_configuration_no = {
+    "name": "sweep_psp_torch",
+    "method": "random",
+    "metric": {"goal": "maximize", "name": "val_melt_pond_iou"},
+    "parameters": {
+        "im_size": {"values": [480]},
+        "learning_rate": {"values": [0.001]},
+        "batch_size": {"values": [4]},
+        "optimizer": {"values": ["Adam"]},
+        "weight_decay": {"values": [0]},
     },
 }
 
@@ -210,6 +248,19 @@ final_deeplabplus_sweep_configuration_rsd = {
         "batch_size": {"values": [4]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0.00001]},
+    },
+}
+
+final_deeplabplus_sweep_configuration_no = {
+    "name": "sweep_deeplabplus_torch",
+    "method": "random",
+    "metric": {"goal": "maximize", "name": "val_melt_pond_iou"},
+    "parameters": {
+        "im_size": {"values": [480]},
+        "learning_rate": {"values": [0.01]},
+        "batch_size": {"values": [4]},
+        "optimizer": {"values": ["SGD"]},
+        "weight_decay": {"values": [0.001]},
     },
 }
 
@@ -453,6 +504,9 @@ def main():
         elif "rsd" in args.config:
             print("Using RSD configuration")
             sweep_config = final_unet_sweep_configuration_rsd
+        elif "no" in args.config:
+            print("Using no pretraining configuration")
+            sweep_config = final_unet_sweep_configuration_no
         else:
             sweep_config = final_unet_sweep_configuration_imnet
     elif args.final_sweep and args.arch == "UnetPlusPlus":
@@ -462,6 +516,9 @@ def main():
         elif "rsd" in args.config:
             print("Using RSD configuration")
             sweep_config = final_unetplusplus_sweep_configuration_rsd
+        elif "no" in args.config:
+            print("Using no pretraining configuration")
+            sweep_config = final_unetplusplus_sweep_configuration_no
         else:
             sweep_config = final_unetplusplus_sweep_configuration_imnet
     elif args.final_sweep and args.arch == "PSPNet":
@@ -471,6 +528,9 @@ def main():
         elif "rsd" in args.config:
             print("Using RSD configuration")
             sweep_config = final_psp_sweep_configuration_rsd
+        elif "no" in args.config:
+            print("Using no pretraining configuration")
+            sweep_config = final_psp_sweep_configuration_no
         else:
             sweep_config = final_psp_sweep_configuration_imnet
     elif args.final_sweep and args.arch == "DeepLabV3":
@@ -486,6 +546,9 @@ def main():
         elif "rsd" in args.config:
             print("Using RSD configuration")
             sweep_config = final_deeplabplus_sweep_configuration_rsd
+        elif "no" in args.config:
+            print("Using no pretraining configuration")
+            sweep_config = final_deeplabplus_sweep_configuration_no
         else:
             sweep_config = final_deeplabplus_sweep_configuration_imnet
     elif args.final_sweep and args.arch == "Linknet":

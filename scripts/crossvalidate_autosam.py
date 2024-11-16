@@ -12,7 +12,7 @@ import numpy as np
 import argparse
 from .utils.data import Dataset
 from .utils.train_helpers import compute_class_weights, set_seed
-from models.autosam.build_autosam_seg_model import sam_seg_model_registry
+from models.autosam.models.build_autosam_seg_model import sam_seg_model_registry
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -46,6 +46,19 @@ final_autosam_sweep_configuration = {
         "im_size": {"values": [480]},
         "learning_rate": {"values": [0.0005]},
         "batch_size": {"values": [1]},
+        "optimizer": {"values": ["Adam"]},
+        "weight_decay": {"values": [0.001]},
+    },
+}
+
+final_autosam_sweep_configuration_no = {
+    "name": "sweep_autosam",
+    "method": "random",
+    "metric": {"goal": "maximize", "name": "val_melt_pond_iou"},
+    "parameters": {
+        "im_size": {"values": [480]},
+        "learning_rate": {"values": [0.001]},
+        "batch_size": {"values": [2]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0.001]},
     },
@@ -227,9 +240,14 @@ def cross_validate_autosam():
 
 
 def main(): 
-    args = parser.parse_args()   
+    args = parser.parse_args() 
+ 
     if args.final_sweep:
-        sweep_config = final_autosam_sweep_configuration
+        if "no" in args.config:
+            print("Using no pretraining configuration")
+            sweep_config = final_autosam_sweep_configuration_no
+        else:
+            sweep_config = final_autosam_sweep_configuration
         counts = 1
     else:
         sweep_config = autosam_sweep_configuration

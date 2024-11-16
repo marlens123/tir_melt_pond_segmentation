@@ -39,7 +39,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--weights_path",
-    default="models/weights/autosam/model.pth",
+    default="final_checkpoints/UnetPlusPlus/inference_UnetPlusPlus_aid.pth",
     type=str,
     help="Path to model weights that should be used. Must contain the model architecture as second-to-last part of path (should be per default).",
 )

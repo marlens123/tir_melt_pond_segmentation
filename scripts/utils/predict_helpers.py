@@ -1,11 +1,10 @@
-from models.autosam.build_autosam_seg_model import sam_seg_model_registry as autosam
+from models.AutoSAM.models.build_autosam_seg_model import sam_seg_model_registry as autosam
 import torch.nn.functional as F
 import numpy as np
 import cv2
 import torch
 from .preprocess_helpers import expand_greyscale_channels, crop_center_square, get_preprocessing
-from models.smp.encoders import get_preprocessing_fn
-import models.smp as smp
+import segmentation_models_pytorch as smp
 
 def label_to_pixelvalue_with_uncertainty(image):
     """
@@ -179,7 +178,7 @@ def predict_image_smp(
     if not no_finetune:
         model.load_state_dict(torch.load(weights))
 
-    preprocessing_fn = get_preprocessing_fn("resnet34", pretrained="imagenet")
+    preprocessing_fn = smp.encoders.get_preprocessing_fn("resnet34", pretrained="imagenet")
     preprocessing = get_preprocessing()
 
     # crop the image to be predicted to a size that is divisible by the patch size used

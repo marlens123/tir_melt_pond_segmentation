@@ -1,10 +1,9 @@
 # Inspired by 2019 Pavel Iakubovskii https://github.com/qubvel/segmentation_models/
 
 import numpy as np
-import keras
 from .preprocess_helpers import expand_greyscale_channels, get_training_augmentation, get_preprocessing, patch_extraction
 from torch.utils.data import Dataset as BaseDataset
-from models.smp.encoders import get_preprocessing_fn
+from segmentation_models_pytorch.encoders import get_preprocessing_fn
 
 
 class Dataset(BaseDataset):

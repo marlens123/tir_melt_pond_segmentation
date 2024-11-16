@@ -16,10 +16,9 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchmetrics import JaccardIndex
 
 from .utils.preprocess_helpers import get_preprocessing
-from models.smp.encoders import get_preprocessing_fn
-import models.smp as smp
+import segmentation_models_pytorch as smp
 
-from models.autosam.dice_loss import SoftDiceLoss
+from models.AutoSAM.loss_functions.dice_loss import SoftDiceLoss
 
 from torch.utils.data import DataLoader
 from .utils.data import Dataset

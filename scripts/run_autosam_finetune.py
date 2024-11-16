@@ -4,7 +4,6 @@ Inspired by 2023 Xinrong Hu et al. https://github.com/xhu248/AutoSAM/blob/main/s
 
 import os
 import argparse
-import random
 import time
 import warnings
 import numpy as np
@@ -20,9 +19,8 @@ import torch.utils.data.distributed
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchmetrics import JaccardIndex
 
-from models.autosam.dice_loss import SoftDiceLoss
-
-from models.autosam.build_autosam_seg_model import sam_seg_model_registry
+from models.autosam.loss_functions.dice_loss import SoftDiceLoss
+from models.autosam.models.build_autosam_seg_model import sam_seg_model_registry
 
 from torch.utils.data import DataLoader
 from .utils.data import Dataset
