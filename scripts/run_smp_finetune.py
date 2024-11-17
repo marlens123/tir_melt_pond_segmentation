@@ -23,6 +23,7 @@ from models.AutoSAM.loss_functions.dice_loss import SoftDiceLoss
 from torch.utils.data import DataLoader
 from .utils.data import Dataset
 from .utils.train_helpers import compute_class_weights, set_seed
+from models.smp.build_rs_models import create_model_rs
 
 import wandb
 
@@ -111,13 +112,22 @@ def main_worker(args, config):
     if cfg_model["pretrain"] == "none":
         cfg_model["pretrain"] = None
 
-    model = smp.create_model(
-        arch=args.arch,
-        encoder_name=cfg_model["backbone"],
-        encoder_weights=cfg_model["pretrain"],
-        in_channels=3,
-        classes=cfg_model["num_classes"],
-    )
+    # create model
+    if cfg_model["pretrain"] == "imagenet" or cfg_model["pretrain"] == "none":
+        model = smp.create_model(
+            encoder_name=cfg_model["backbone"],
+            encoder_weights=cfg_model["pretrain"],
+            in_channels=3,
+            classes=cfg_model["num_classes"],
+        )
+    else:
+        model = create_model_rs(
+            arch=args.arch,
+            encoder_name=cfg_model["backbone"],
+            pretrain=cfg_model["pretrain"],
+            in_channels=3,
+            classes=cfg_model["num_classes"],
+        )
     print("Number of parameters: ", sum(p.numel() for p in model.parameters()))
 
     if args.gpu is not None:

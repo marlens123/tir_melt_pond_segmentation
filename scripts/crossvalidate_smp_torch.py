@@ -15,6 +15,7 @@ import segmentation_models_pytorch as smp
 import argparse
 from .utils.preprocess_helpers import get_preprocessing
 from sklearn.metrics import confusion_matrix
+from models.smp.build_rs_models import create_model_rs
 
 parser = argparse.ArgumentParser(description="PyTorch Unet Training")
 parser.add_argument(
@@ -337,13 +338,21 @@ def train_smp_torch(num, args, sweep_id, sweep_run_name, config, train_loader, t
     class_weights = torch.from_numpy(class_weights).float().cuda(0)
 
     # create model
-    model = smp.create_model(
-        arch=args.arch,
-        encoder_name=cfg_model["backbone"],
-        encoder_weights=cfg_model["pretrain"],
-        in_channels=3,
-        classes=cfg_model["num_classes"],
-    )
+    if cfg_model["pretrain"] == "imagenet" or cfg_model["pretrain"] == "none":
+        model = smp.create_model(
+            encoder_name=cfg_model["backbone"],
+            encoder_weights=cfg_model["pretrain"],
+            in_channels=3,
+            classes=cfg_model["num_classes"],
+        )
+    else:
+        model = create_model_rs(
+            arch=args.arch,
+            encoder_name=cfg_model["backbone"],
+            pretrain=cfg_model["pretrain"],
+            in_channels=3,
+            classes=cfg_model["num_classes"],
+        )
 
     torch.cuda.set_device(0)
     model = model.cuda(0)
