@@ -274,6 +274,8 @@ def main():
         probabilities_dir = os.path.join(args.predicted_path, "np/", "probabilities.npy")
         masks = np.load(mask_dir)
         probabilities = np.load(probabilities_dir)
+        output_nc_dir = os.path.join("data/prediction/output_nc/")
+        os.makedirs(output_nc_dir, exist_ok=True)
 
         import netCDF4 as nc
 
