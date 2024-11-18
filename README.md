@@ -28,6 +28,7 @@ AID and RSD46-WHU pre-training weights can be downloaded from here (https://gith
 ## How to Use
 1) To run inference: Load the helicopter flight of interest from [PANGAEA](https://doi.org/10.1594/PANGAEA.971908) into ```data/prediction/temperatures/```. Then execute 
 ```python -m scripts.run_inference --data "[PATH_TO_TEMPERATURE_FILE]"```
+The prediction results will be stored in ```data/prediction/```.
 
 2) To fine-tune the model: Please execute
 ```python -m scripts.run_smp_finetune --pref "[PREFIX_OF_CHOICE]"```
