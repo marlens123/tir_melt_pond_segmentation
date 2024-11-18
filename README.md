@@ -31,6 +31,7 @@ To install additional dependencies, use the following command:
 
 ```bash
 pip install -r requirements.txt
+```
 
 ### Data and Weights
 
