@@ -55,33 +55,33 @@ Please store all downloaded checkpoints in the respective folders within the `pr
 ### 1) Run Inference
 To run inference on a helicopter flight of interest, follow these steps:
 
-- **Download the IR temperature netCDF file** of the flight from [PANGAEA](https://doi.org/10.1594/PANGAEA.971908).
-- **Store the file** in the `data/prediction/temperatures/` directory.
+- Download the IR temperature netCDF file of the flight from [PANGAEA](https://doi.org/10.1594/PANGAEA.971908).
+- Store the file in the `data/prediction/temperatures/` directory.
 - Execute the following command to run the inference:
 
-    ```bash
-    python -m scripts.run_inference --data "[PATH_TO_TEMPERATURE_FILE]"
-    ```
+```bash
+python -m scripts.run_inference --data "[PATH_TO_TEMPERATURE_FILE]"
+```
 
 - The prediction results will be stored in the `data/prediction/` directory.
 
 ### 2) Fine-Tune the Model
 To fine-tune the model on your dataset, use the following command:
 
-    ```bash
-    python -m scripts.run_smp_finetune --pref "[PREFIX_OF_CHOICE]"
-    ```
+```bash
+python -m scripts.run_smp_finetune --pref "[PREFIX_OF_CHOICE]"
+```
 
 - The final fine-tuned model weights will be stored in the `models/weights/` directory.
 
 ### 3) Run Cross-Validation
 To perform cross-validation on the model, execute:
 
-    ```bash
-    python -m scripts.crossvalidate_smp_torch --final_sweep
-    ```
+```bash
+python -m scripts.crossvalidate_smp_torch --final_sweep
+```
 
 ### Additional Notes
-- **WandB Configuration**: To ensure the scripts run correctly, adjust the [WandB](https://wandb.ai) configuration in the respective files before execution.
+- WandB Configuration: To ensure the scripts run correctly, adjust the [WandB](https://wandb.ai) configuration in the respective files before execution.
 
 Contact: marlena1@gmx.de
