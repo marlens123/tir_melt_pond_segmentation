@@ -33,11 +33,11 @@ parser = argparse.ArgumentParser(description="PyTorch Unet Training")
 
 # prefix
 parser.add_argument(
-    "--pref", default="unet_imnet", type=str, help="used for wandb logging"
+    "--pref", default="default", type=str, help="used for wandb logging"
 )
 
 # hyperparameters
-parser.add_argument("--path_to_config", default="configs/unet/imnet.json", type=str, help="Path to config file that stores hyperparameter setting.")
+parser.add_argument("--path_to_config", default="configs/unetplusplus/aid.json", type=str, help="Path to config file that stores hyperparameter setting.")
 
 # processing
 parser.add_argument(
@@ -67,7 +67,7 @@ parser.add_argument(
     "--path_to_y_test", type=str, default="data/training/test_masks.npy"
 )
 parser.add_argument(
-    "--arch", type=str, default="Unet", choices=["Unet", "UnetPlusPlus", "MAnet", "Linknet", "PSPNet", "DeepLabV3", "DeepLabV3Plus", "FPN", "PAN"]
+    "--arch", type=str, default="UnetPlusPlus", choices=["Unet", "UnetPlusPlus", "MAnet", "Linknet", "PSPNet", "DeepLabV3", "DeepLabV3Plus", "FPN", "PAN"]
 )
 
 # wandb monitoring

@@ -26,7 +26,7 @@ parser.add_argument(
 parser.add_argument(
     "--arch",
     type=str,
-    default="Unet",
+    default="UnetPlusPlus",
     choices=["Unet", "AutoSAM", "UnetPlusPlus", "Linknet", "MAnet"],
     help="Model Architecture to use.",
 )

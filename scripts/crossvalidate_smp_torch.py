@@ -19,7 +19,7 @@ from models.smp.build_rs_models import create_model_rs
 
 parser = argparse.ArgumentParser(description="PyTorch Unet Training")
 parser.add_argument(
-    "--arch", type=str, default="Unet"
+    "--arch", type=str, default="UnetPlusPlus"
 )
 parser.add_argument(
     "--final_sweep", default=False, action="store_true"
@@ -28,7 +28,7 @@ parser.add_argument(
     "--seed", type=int, default=84
 )
 parser.add_argument(
-    "--config", type=str, default="configs/unet/imnet.json"
+    "--config", type=str, default="configs/unetplusplus/aid.json"
 )
 
 final_unet_sweep_configuration_imnet = {
