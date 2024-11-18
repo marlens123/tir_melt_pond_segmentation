@@ -44,7 +44,7 @@ This repository relies on pre-training checkpoints from the following sources:
             `resnet34_224-epoch.9-val_acc.0.966.ckpt` (AID)
             `resnet34-epoch.19-val_acc.0.921.ckpt` (RSD46-WHU)
 
-- [SAM](https://github.com/facebookresearch/segment-anything/) (Apache License 2.0)
+2) [SAM](https://github.com/facebookresearch/segment-anything/) (Apache License 2.0)
 
 Please store all downloaded checkpoints in the respective folders within the `pretraining_checkpoints/` directory.
 
