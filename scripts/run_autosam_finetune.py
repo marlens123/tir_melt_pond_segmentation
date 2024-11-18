@@ -19,8 +19,8 @@ import torch.utils.data.distributed
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchmetrics import JaccardIndex
 
-from models.autosam.loss_functions.dice_loss import SoftDiceLoss
-from models.autosam.models.build_autosam_seg_model import sam_seg_model_registry
+from models.AutoSAM.loss_functions.dice_loss import SoftDiceLoss
+from models.AutoSAM.models.build_autosam_seg_model import sam_seg_model_registry
 
 from torch.utils.data import DataLoader
 from .utils.data import Dataset

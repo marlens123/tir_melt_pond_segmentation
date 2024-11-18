@@ -12,8 +12,10 @@ Best weights for validation:
 
 GitHub TODO:
 - test code and requirements (test aid)
-- add Apache-2.0 license and MIT license
+- add Apache-2.0 license
+- fill in README in models/
 - make repo public
+- additional README in pre-training checkpoints
 
 ## Overview
 - Purpose of the repository
@@ -29,9 +31,9 @@ Acknowledge original authors of AutoSAM and Segmentation Models here.
 ## Getting Started
 This code requires ```python>=3.10```, as well as ```pytorch>=1.7``` and ```torchvision>=0.8```. Install additional packages using ```pip install -r requirements.txt```. The data and weights are git lfs tracked. Please install git lfs.
 
-To use AutoSAM: Segment Anything model checkpoints can be downloaded from SAM and should be placed in ```models/autosam/segment_anything_checkpoints/```.
+To use AutoSAM: Segment Anything model checkpoints can be downloaded from SAM and should be placed in ```pretraining_checkpoints/```.
 
-AID and RSD46-WHU pre-training weights can be downloaded from here (https://github.com/lsh1994/remote_sensing_pretrained_models) and store them in the respective folders in ```models/smp/smp_checkpoints```.
+AID and RSD46-WHU pre-training weights can be downloaded from here (https://github.com/lsh1994/remote_sensing_pretrained_models) and store them in the respective folders in ```pretraining_checkpoints/```.
 
 To reproduce the helicopter flight classification, the flight data can be loaded from ... into ```data/prediction/temperatures/```.
 

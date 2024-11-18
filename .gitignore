@@ -3,6 +3,7 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 wandb/
+git-lfs-3.5.1/
 
 # data
 *.nc

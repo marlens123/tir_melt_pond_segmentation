@@ -113,13 +113,15 @@ def main_worker(args, config):
         cfg_model["pretrain"] = None
 
     # create model
-    if cfg_model["pretrain"] == "imagenet" or cfg_model["pretrain"] == "none":
+    if cfg_model["pretrain"] == "imagenet" or cfg_model["pretrain"] == None:
         model = smp.create_model(
+            arch=args.arch,
             encoder_name=cfg_model["backbone"],
             encoder_weights=cfg_model["pretrain"],
             in_channels=3,
             classes=cfg_model["num_classes"],
         )
+        print("Using smp pretrain weights")
     else:
         model = create_model_rs(
             arch=args.arch,
@@ -128,7 +130,8 @@ def main_worker(args, config):
             in_channels=3,
             classes=cfg_model["num_classes"],
         )
-    print("Number of parameters: ", sum(p.numel() for p in model.parameters()))
+        print("Using custom pretrain weights")
+    #print("Number of parameters: ", sum(p.numel() for p in model.parameters()))
 
     if args.gpu is not None:
         torch.cuda.set_device(args.gpu)

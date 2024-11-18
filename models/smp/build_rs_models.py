@@ -164,6 +164,7 @@ class PSPNet(PSPNet_SMP):
             weights=encoder_weights,
             pretrain=pretrain,
         )
+        
 
 class DeepLabV3Plus(DeepLabV3Plus_SMP):
     def __init__(
@@ -182,6 +183,7 @@ class DeepLabV3Plus(DeepLabV3Plus_SMP):
         pretrain: _Optional[str] = None,
         **kwargs
     ):
+
         super().__init__(encoder_name, encoder_depth, encoder_weights, encoder_output_stride, decoder_channels, decoder_atrous_rates, in_channels, classes, activation, upsampling, aux_params, **kwargs)
 
         self.encoder = get_encoder_rs(
@@ -189,6 +191,7 @@ class DeepLabV3Plus(DeepLabV3Plus_SMP):
             in_channels=in_channels,
             depth=encoder_depth,
             weights=encoder_weights,
+            output_stride=encoder_output_stride,
             pretrain=pretrain,
         )
 

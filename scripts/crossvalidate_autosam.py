@@ -12,7 +12,7 @@ import numpy as np
 import argparse
 from .utils.data import Dataset
 from .utils.train_helpers import compute_class_weights, set_seed
-from models.autosam.models.build_autosam_seg_model import sam_seg_model_registry
+from models.AutoSAM.models.build_autosam_seg_model import sam_seg_model_registry
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
