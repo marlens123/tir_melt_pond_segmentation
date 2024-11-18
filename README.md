@@ -22,10 +22,7 @@ We further acknowledge the authors of [remote_sensing_pretrained_models](https:/
 
 ## Getting Started
 
-This code requires:
-- `python >= 3.10`
-- `pytorch >= 1.7`
-- `torchvision >= 0.8`
+This code requires `python >= 3.10`.
 
 To install additional dependencies, use the following command:
 
