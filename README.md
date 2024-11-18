@@ -63,7 +63,7 @@ python -m scripts.run_inference --data "[PATH_TO_TEMPERATURE_FILE]"
 - The prediction results will be stored in the `data/prediction/` directory.
 
 ### 2) Fine-Tune the Model
-To fine-tune the model on your dataset, use the following command:
+To fine-tune the model on 11 training images, use the following command:
 
 ```bash
 python -m scripts.run_smp_finetune --pref "[PREFIX_OF_CHOICE]"
@@ -72,7 +72,7 @@ python -m scripts.run_smp_finetune --pref "[PREFIX_OF_CHOICE]"
 - The final fine-tuned model weights will be stored in the `models/weights/` directory.
 
 ### 3) Run Cross-Validation
-To perform cross-validation on the model, execute:
+To perform 3-fold cross-validation for performance evaluation, execute:
 
 ```bash
 python -m scripts.crossvalidate_smp_torch --final_sweep
