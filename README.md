@@ -48,6 +48,11 @@ This repository relies on pre-training checkpoints from the following sources:
 
 Please store all downloaded checkpoints in the respective folders within the `pretraining_checkpoints/` directory.
 
+### Experiment Tracking
+
+This project uses [Weights & Biases (WandB)](https://wandb.ai) for experiment tracking and model logging.
+To track fine-tuning experiments, a WandB account is needed.
+
 ## How to Use
 ### 1) Run Inference
 To run inference on a helicopter flight of interest, follow these steps:
@@ -79,6 +84,6 @@ python -m scripts.crossvalidate_smp_torch --final_sweep --wandb_entity "[YOUR_EX
 ```
 
 ### Additional Notes
-- [WandB](https://wandb.ai) Configuration: To ensure the scripts run correctly, ensure that for fine-tuning and cross-validating, you set the `--wandb_entity` argument to an existing entity of your wandb account. You can also disable wandb tracking by specifying `--disable_wandb` while calling the respective script.
+- WandB Configuration: To ensure the scripts run correctly, ensure that for fine-tuning and cross-validating, you set the `--wandb_entity` argument to an existing entity of your wandb account. You can also disable wandb tracking by specifying `--disable_wandb` while calling the respective script.
 
 Contact: marlena1@gmx.de
