@@ -24,6 +24,9 @@ parser.add_argument(
 parser.add_argument(
     "--config", type=str, default="configs/autosam/sa-1b.json"
 )
+parser.add_argument(
+    "--wandb_entity", type=str, default="sea-ice"
+)
 
 autosam_sweep_configuration = {
     "name": "sweep_autosam",
@@ -256,7 +259,7 @@ def main():
     set_seed(args.seed)
 
     wandb.login()
-    sweep_id, count = wandb.sweep(sweep=sweep_config, project="sam", entity="sea-ice"), counts
+    sweep_id, count = wandb.sweep(sweep=sweep_config, project="melt_pond", entity=args.wandb_entity), counts
     wandb.agent(sweep_id, function=cross_validate_autosam, count=count)
 
     wandb.finish()

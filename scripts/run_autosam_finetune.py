@@ -76,6 +76,9 @@ parser.add_argument(
     help='use wandb for logging'
 )
 
+parser.add_argument(
+    "--wandb_entity", type=str, default="sea-ice"
+)
 
 def main():
     args = parser.parse_args()
@@ -203,8 +206,8 @@ def main_worker(args, config):
     if args.use_wandb and args is not None:
 
         wandb.init(
-            entity='sea-ice',
-            project='sam',
+            entity=args.wandb_entity,
+            project='melt_pond',
             name=args.pref,
         )
         wandb.config.update(config)

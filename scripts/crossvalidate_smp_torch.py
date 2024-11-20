@@ -30,6 +30,9 @@ parser.add_argument(
 parser.add_argument(
     "--config", type=str, default="configs/unetplusplus/aid.json"
 )
+parser.add_argument(
+    "--wandb_entity", type=str, default="sea-ice"
+)
 
 final_unet_sweep_configuration_imnet = {
     "name": "sweep_unet_torch",
@@ -570,7 +573,7 @@ def main():
     else:
         sweep_config = smp_torch_sweep_configuration
         count = 100
-    sweep_id = wandb.sweep(sweep=sweep_config, project="sam", entity="sea-ice")
+    sweep_id = wandb.sweep(sweep=sweep_config, project="melt_pond", entity=args.wandb_entity)
     wandb.agent(sweep_id, function=cross_validate_smp_torch, count=count)
 
     wandb.finish()

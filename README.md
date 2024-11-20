@@ -66,7 +66,7 @@ python -m scripts.run_inference --data "[PATH_TO_TEMPERATURE_FILE]"
 To fine-tune the model on 11 training images, use the following command:
 
 ```bash
-python -m scripts.run_smp_finetune --pref "[PREFIX_OF_CHOICE]"
+python -m scripts.run_smp_finetune --pref "[PREFIX_OF_CHOICE]" --wandb_entity "[YOUR_EXISTING_WANDB_ENTITY]"
 ```
 
 - The final fine-tuned model weights will be stored in the `models/weights/` directory.
@@ -75,10 +75,10 @@ python -m scripts.run_smp_finetune --pref "[PREFIX_OF_CHOICE]"
 To perform 3-fold cross-validation for performance evaluation, execute:
 
 ```bash
-python -m scripts.crossvalidate_smp_torch --final_sweep
+python -m scripts.crossvalidate_smp_torch --final_sweep --wandb_entity "[YOUR_EXISTING_WANDB_ENTITY]"
 ```
 
 ### Additional Notes
-- WandB Configuration: To ensure the scripts run correctly, adjust the [WandB](https://wandb.ai) configuration in the respective files before execution.
+- [WandB](https://wandb.ai) Configuration: To ensure the scripts run correctly, ensure that for fine-tuning and cross-validating, you set the `--wandb_entity` argument to an existing entity of your wandb account. You can also disable wandb tracking by specifying `--disable_wandb` while calling the respective script.
 
 Contact: marlena1@gmx.de
