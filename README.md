@@ -50,7 +50,7 @@ Please store all downloaded checkpoints in the respective folders within the `pr
 
 ### Experiment Tracking
 
-This project uses [Weights & Biases (WandB)](https://wandb.ai) for experiment tracking and model logging.
+This project uses [Weights & Biases (WandB)](https://wandb.ai) for experiment tracking.
 To track fine-tuning experiments, a WandB account is needed.
 
 ## How to Use
