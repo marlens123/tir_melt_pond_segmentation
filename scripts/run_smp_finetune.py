@@ -22,8 +22,10 @@ from models.AutoSAM.loss_functions.dice_loss import SoftDiceLoss
 
 from torch.utils.data import DataLoader
 from .utils.data import Dataset
-from .utils.train_helpers import compute_class_weights, set_seed
+from .utils.train_helpers import compute_class_weights, set_seed, FocalLoss
 from models.smp.build_rs_models import create_model_rs
+
+from sklearn.metrics import roc_auc_score, precision_score, recall_score
 
 import wandb
 
@@ -83,6 +85,14 @@ parser.add_argument(
     default='sea-ice', 
     type=str, 
     help='wandb entity name'
+)
+
+parser.add_argument(
+    '--loss_fn',
+    default='dice_ce', 
+    type=str, 
+    choices=['dice_ce', 'focal', 'focal_dice'],
+    help='loss function to use'
 )
 
 def main():
@@ -238,8 +248,9 @@ def main_worker(args, config):
             cfg_model,
             args,
             class_weights_np=class_weights_np,
+            loss_fn=args.loss_fn
         )
-        _, _, mp_iou, _, _, _, _ = validate(test_loader, model, epoch, scheduler, cfg_model, args)
+        _, _, mp_iou, _, _, _, _, precision, recall = validate(test_loader, model, epoch, scheduler, cfg_model, args)
 
         # save model weights
         if mp_iou > best_mp_iou:
@@ -267,6 +278,7 @@ def train(
     cfg_model,
     args=None,
     class_weights_np=None,
+    loss_fn="dice_ce"
 ):
 
     if args is None:
@@ -278,11 +290,12 @@ def train(
 
     batch_time = AverageMeter("Time", ":6.3f")
     data_time = AverageMeter("Data", ":6.3f")
+    focal_loss = FocalLoss(alpha=class_weights, gamma=2, reduction='mean')
     dice_loss = SoftDiceLoss(
         batch_dice=True, do_bg=False, rebalance_weights=class_weights_np
     )
+    dice_weight = 0.5
     ce_loss = torch.nn.CrossEntropyLoss(weight=class_weights)
-
     # switch to train mode
     model.train()
 
@@ -305,10 +318,20 @@ def train(
         end_time = time.time()
         print("Time for forward pass smp: ", end_time - start_time)
 
-        pred_softmax = F.softmax(mask, dim=1)
-        loss = ce_loss(mask, label.squeeze(1)) + dice_loss(
-            pred_softmax, label.squeeze(1)
-        )
+        if loss_fn == "focal":
+            loss = focal_loss(mask, label.squeeze(1))
+        elif loss_fn == "focal_dice":
+            assert mask.shape[1] == 3
+            pred_softmax = F.softmax(mask, dim=1)
+            loss = focal_loss(mask, label.squeeze(1)) + dice_weight * dice_loss(
+                pred_softmax, label.squeeze(1)
+            )
+        elif loss_fn == "dice_ce":
+            assert mask.shape[1] == 3
+            pred_softmax = F.softmax(mask, dim=1)
+            loss = ce_loss(mask, label.squeeze(1)) + dice_loss(
+                pred_softmax, label.squeeze(1)
+            )
         print("Time for loss calculation smp: ", time.time() - end_time)
 
         jaccard = JaccardIndex(task="multiclass", num_classes=cfg_model["num_classes"]).to(
@@ -338,8 +361,13 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
     jac_mean = []
     pred_coll = []
     label_coll = []
+    prob_coll = []
     dice_loss = SoftDiceLoss(batch_dice=True, do_bg=False)
     model.eval()
+
+    tp = [0] * cfg_model["num_classes"]
+    fp = [0] * cfg_model["num_classes"]
+    fn = [0] * cfg_model["num_classes"]
 
     if args is None:
         gpu = 0
@@ -364,7 +392,9 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
             mask = model.forward(img)
             mask = mask.view(b, -1, h, w)
 
+            assert mask.shape[1] == 3
             pred_softmax = F.softmax(mask, dim=1)
+            prob_coll.append(pred_softmax.cpu())
             loss = dice_loss(
                 pred_softmax, label.squeeze(1)
             )  # self.ce_loss(pred, target.squeeze())
@@ -388,6 +418,12 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
             jac_list_oc.append(jac[2].item())
             jac_mean.append(jac_m.item())
 
+            # compute confusion stats per class
+            for c in range(cfg_model["num_classes"]):
+                tp[c] += torch.sum((pred == c) & (label.squeeze(1) == c)).item()
+                fp[c] += torch.sum((pred == c) & (label.squeeze(1) != c)).item()
+                fn[c] += torch.sum((pred != c) & (label.squeeze(1) == c)).item()
+
             if use_wandb:
                 wandb.log({"epoch": epoch, "val_loss_{}".format(i): loss.item()})
                 wandb.log({"epoch": epoch, "val_jac_mp_{}".format(i): jac[0].item()})
@@ -409,7 +445,45 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
         "Validating: Epoch: %2d Loss: %.4f"
         % (epoch, np.mean(loss_list))
     )
-    return np.mean(loss_list), np.mean(jac_mean), np.mean(jac_list_mp), np.mean(jac_list_oc), np.mean(jac_list_si), label_coll, pred_coll
+
+    # PRECISION / RECALL
+    ####################
+    tp = torch.tensor(tp)
+    fp = torch.tensor(fp)
+    fn = torch.tensor(fn)
+
+    tp_total = tp.sum().float()
+    fp_total = fp.sum().float()
+    fn_total = fn.sum().float()
+
+    # compute precision/recall per class
+    precision = tp.float() / (tp + fp).clamp(min=1)
+    recall = tp.float() / (tp + fn).clamp(min=1)
+
+    # you can also average (macro) or weight by class frequency (micro)
+    precision_macro = precision.mean().item()
+    recall_macro = recall.mean().item()
+
+    precision_micro = (tp_total / (tp_total + fp_total).clamp(min=1)).item()
+    recall_micro = (tp_total / (tp_total + fn_total).clamp(min=1)).item()
+    ######################
+
+    # ROC AUC
+    ######################
+    y_scores = np.concatenate(prob_coll, axis=0)
+    y_true = np.concatenate(label_coll, axis=0)
+
+    roc_auc_scores = []
+
+    for c in range(cfg_model["num_classes"]):
+        y_true_c = (y_true == c).flatten()
+        y_scores_c = y_scores[:, c].flatten()
+        roc_auc = roc_auc_score(y_true_c, y_scores_c)
+        roc_auc_scores.append(roc_auc)
+
+    ######################
+
+    return np.mean(loss_list), np.mean(jac_mean), np.mean(jac_list_mp), np.mean(jac_list_oc), np.mean(jac_list_si), label_coll, pred_coll, precision, recall, precision_macro, recall_macro, roc_auc_scores
 
 
 class AverageMeter(object):

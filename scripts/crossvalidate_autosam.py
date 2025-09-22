@@ -27,6 +27,9 @@ parser.add_argument(
 parser.add_argument(
     "--wandb_entity", type=str, default="sea-ice"
 )
+parser.add_argument(
+    "--loss_fn", type=str, default="dice_ce", choices=["dice_ce", "focal", "focal_dice"]
+)
 
 autosam_sweep_configuration = {
     "name": "sweep_autosam",
@@ -78,7 +81,7 @@ def reset_wandb_env():
             del os.environ[key]
 
 
-def train_autosam(num, sweep_id, sweep_run_name, config, train_loader, test_loader, class_weights, hyper_config):
+def train_autosam(num, sweep_id, sweep_run_name, config, train_loader, test_loader, class_weights, hyper_config, args):
     run_name = f'{sweep_run_name}-{num}'
     run = wandb.init(
         group=sweep_id,
@@ -151,6 +154,7 @@ def train_autosam(num, sweep_id, sweep_run_name, config, train_loader, test_load
             epoch,
             cfg_model,
             class_weights_np=class_weights_np,
+            loss_fn=args.loss_fn
         )
         _, val_miou, val_mp_iou, val_oc_iou, val_si_iou = autosam_validate(test_loader, model, epoch, scheduler, cfg_model)
 
@@ -221,6 +225,7 @@ def cross_validate_autosam():
             test_loader=test_loader,
             class_weights=class_weights,
             hyper_config=hyper_config,
+            args=args
         )
         metrics_miou.append(val_miou)
         metrics_mp_iou.append(val_mp_iou)

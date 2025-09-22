@@ -24,7 +24,7 @@ from models.AutoSAM.models.build_autosam_seg_model import sam_seg_model_registry
 
 from torch.utils.data import DataLoader
 from .utils.data import Dataset
-from .utils.train_helpers import compute_class_weights, set_seed
+from .utils.train_helpers import compute_class_weights, set_seed, FocalLoss
 
 import wandb
 
@@ -78,6 +78,10 @@ parser.add_argument(
 
 parser.add_argument(
     "--wandb_entity", type=str, default="sea-ice"
+)
+
+parser.add_argument(
+    "--loss_fn", type=str, default="dice_ce", help="loss function to use", choices=["dice_ce", "focal", "focal_dice"]
 )
 
 def main():
@@ -226,6 +230,7 @@ def main_worker(args, config):
             cfg_model,
             args,
             class_weights_np=class_weights_np,
+            loss_fn=args.loss_fn
         )
         _, _, mp_iou, _, _ = validate(test_loader, model, epoch, scheduler, cfg_model, args)
 
@@ -255,6 +260,7 @@ def train(
     cfg_model,
     args=None,
     class_weights_np=None,
+    loss_fn="dice_ce"
 ):
 
     if args is None:
@@ -268,6 +274,8 @@ def train(
         batch_dice=True, do_bg=False, rebalance_weights=class_weights_np
     )
     ce_loss = torch.nn.CrossEntropyLoss(weight=class_weights)
+    focal_loss = FocalLoss(alpha=class_weights, gamma=2, reduction='mean')
+    dice_weight = 0.5
 
     # switch to train mode
     model.train()
@@ -290,10 +298,20 @@ def train(
         print("Time for forward pass autosam: ", end_time - start_time)
         mask = mask.view(b, -1, h, w)
 
-        pred_softmax = F.softmax(mask, dim=1)
-        loss = ce_loss(mask, label.squeeze(1)) + dice_loss(
-            pred_softmax, label.squeeze(1)
-        )
+        if loss_fn == "focal":
+            loss = focal_loss(mask, label.squeeze(1))
+        elif loss_fn == "focal_dice":
+            assert mask.shape[1] == 3
+            pred_softmax = F.softmax(mask, dim=1)
+            loss = focal_loss(mask, label.squeeze(1)) + dice_weight * dice_loss(
+                pred_softmax, label.squeeze(1)
+            )
+        elif loss_fn == "dice_ce":
+            assert mask.shape[1] == 3
+            pred_softmax = F.softmax(mask, dim=1)
+            loss = ce_loss(mask, label.squeeze(1)) + dice_loss(
+                pred_softmax, label.squeeze(1)
+            )
         print("Time for loss computation autosam: ", time.time() - end_time)
 
         jaccard = JaccardIndex(task="multiclass", num_classes=cfg_model["num_classes"]).to(
@@ -320,6 +338,12 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
     jac_list_si = []
     jac_list_oc = []
     jac_mean = []
+    label_coll = []
+    prob_coll = []
+    pred_coll = []
+    tp = [0] * cfg_model["num_classes"]
+    fp = [0] * cfg_model["num_classes"]
+    fn = [0] * cfg_model["num_classes"]
     dice_loss = SoftDiceLoss(batch_dice=True, do_bg=False)
     model.eval()
 
@@ -340,17 +364,30 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
                 label = tup[1]
             b, _, h, w = img.shape
 
+            label_coll.append(label.squeeze(1).cpu())
+
             # compute output
             mask, iou_pred = model(img)
             mask = mask.view(b, -1, h, w)
             iou_pred = iou_pred.squeeze().view(b, -1)
             iou_pred = torch.mean(iou_pred)
 
+            assert mask.shape[1] == 3
             pred_softmax = F.softmax(mask, dim=1)
+            prob_coll.append(pred_softmax.cpu())
             loss = dice_loss(
                 pred_softmax, label.squeeze(1)
             )  # self.ce_loss(pred, target.squeeze())
             loss_list.append(loss.item())
+
+            pred = torch.argmax(mask, dim=1)
+            pred_coll.append(pred.cpu())
+
+            # compute confusion stats per class
+            for c in range(cfg_model["num_classes"]):
+                tp[c] += torch.sum((pred == c) & (label.squeeze(1) == c)).item()
+                fp[c] += torch.sum((pred == c) & (label.squeeze(1) != c)).item()
+                fn[c] += torch.sum((pred != c) & (label.squeeze(1) == c)).item()
 
             jaccard = JaccardIndex(
                 task="multiclass", num_classes=cfg_model["num_classes"], average=None
@@ -388,4 +425,42 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
         "Validating: Epoch: %2d Loss: %.4f IoU_pred: %.4f"
         % (epoch, np.mean(loss_list), iou_pred.item())
     )
+
+    # PRECISION / RECALL
+    ####################
+    tp = torch.tensor(tp)
+    fp = torch.tensor(fp)
+    fn = torch.tensor(fn)
+
+    tp_total = tp.sum().float()
+    fp_total = fp.sum().float()
+    fn_total = fn.sum().float()
+
+    # compute precision/recall per class
+    precision = tp.float() / (tp + fp).clamp(min=1)
+    recall = tp.float() / (tp + fn).clamp(min=1)
+
+    # you can also average (macro) or weight by class frequency (micro)
+    precision_macro = precision.mean().item()
+    recall_macro = recall.mean().item()
+
+    precision_micro = (tp_total / (tp_total + fp_total).clamp(min=1)).item()
+    recall_micro = (tp_total / (tp_total + fn_total).clamp(min=1)).item()
+    ######################
+
+    # ROC AUC
+    ######################
+    y_scores = np.concatenate(prob_coll, axis=0)
+    y_true = np.concatenate(label_coll, axis=0)
+
+    roc_auc_scores = []
+
+    for c in range(cfg_model["num_classes"]):
+        y_true_c = (y_true == c).flatten()
+        y_scores_c = y_scores[:, c].flatten()
+        roc_auc = roc_auc_score(y_true_c, y_scores_c)
+        roc_auc_scores.append(roc_auc)
+
+    ######################
+
     return np.mean(loss_list), np.mean(jac_mean), np.mean(jac_list_mp), np.mean(jac_list_oc), np.mean(jac_list_si)

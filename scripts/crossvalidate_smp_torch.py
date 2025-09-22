@@ -33,6 +33,9 @@ parser.add_argument(
 parser.add_argument(
     "--wandb_entity", type=str, default="sea-ice"
 )
+parser.add_argument(
+    "--loss_fn", type=str, default="dice_ce", choices=["dice_ce", "focal", "focal_dice"]
+)
 
 final_unet_sweep_configuration_imnet = {
     "name": "sweep_unet_torch",
@@ -404,6 +407,7 @@ def train_smp_torch(num, args, sweep_id, sweep_run_name, config, train_loader, t
             epoch,
             cfg_model,
             class_weights_np=class_weights_np,
+            loss_fn=args.loss_fn
         )
     _, val_miou, val_mp_iou, val_oc_iou, val_si_iou, y_true, y_pred = unet_torch_validate(test_loader, model, epoch, scheduler, cfg_model)
     cm = confusion_matrix(np.array(y_true).flatten(), np.array(y_pred).flatten(), normalize='true')
