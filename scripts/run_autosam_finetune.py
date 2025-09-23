@@ -25,6 +25,7 @@ from models.AutoSAM.models.build_autosam_seg_model import sam_seg_model_registry
 from torch.utils.data import DataLoader
 from .utils.data import Dataset
 from .utils.train_helpers import compute_class_weights, set_seed, FocalLoss
+from sklearn.metrics import roc_auc_score
 
 import wandb
 
@@ -232,7 +233,7 @@ def main_worker(args, config):
             class_weights_np=class_weights_np,
             loss_fn=args.loss_fn
         )
-        _, _, mp_iou, _, _ = validate(test_loader, model, epoch, scheduler, cfg_model, args)
+        _, _, mp_iou, _, _, _, _, _, _, _ = validate(test_loader, model, epoch, scheduler, cfg_model, args)
 
         # save model when melt pond IoU improved
         if mp_iou > best_mp_iou:
@@ -300,6 +301,7 @@ def train(
 
         if loss_fn == "focal":
             loss = focal_loss(mask, label.squeeze(1))
+
         elif loss_fn == "focal_dice":
             assert mask.shape[1] == 3
             pred_softmax = F.softmax(mask, dim=1)
@@ -446,6 +448,19 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
 
     precision_micro = (tp_total / (tp_total + fp_total).clamp(min=1)).item()
     recall_micro = (tp_total / (tp_total + fn_total).clamp(min=1)).item()
+
+    if use_wandb:
+        wandb.log({"epoch": epoch, "val_precision_mp": precision[0].item()})
+        wandb.log({"epoch": epoch, "val_precision_si": precision[1].item()})
+        wandb.log({"epoch": epoch, "val_precision_oc": precision[2].item()})
+        wandb.log({"epoch": epoch, "val_precision_macro": precision_macro})
+        wandb.log({"epoch": epoch, "val_precision_micro": precision_micro})
+        wandb.log({"epoch": epoch, "val_recall_mp": recall[0].item()})
+        wandb.log({"epoch": epoch, "val_recall_si": recall[1].item()})
+        wandb.log({"epoch": epoch, "val_recall_oc": recall[2].item()})
+        wandb.log({"epoch": epoch, "val_recall_macro": recall_macro})
+        wandb.log({"epoch": epoch, "val_recall_micro": recall_micro})
+
     ######################
 
     # ROC AUC
@@ -463,4 +478,12 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
 
     ######################
 
-    return np.mean(loss_list), np.mean(jac_mean), np.mean(jac_list_mp), np.mean(jac_list_oc), np.mean(jac_list_si)
+    return np.mean(loss_list), np.mean(jac_mean), np.mean(jac_list_mp), np.mean(jac_list_oc), np.mean(jac_list_si), precision, recall, precision_macro, recall_macro, roc_auc_scores
+
+
+if __name__ == "__main__":
+    start_time = time.time()
+    main()
+    end_time = time.time()
+
+    print("Time with GPU: ", end_time - start_time)

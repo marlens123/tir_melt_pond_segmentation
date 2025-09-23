@@ -307,6 +307,7 @@ smp_torch_sweep_configuration = {
         "batch_size": {"values": [1, 2, 4]},
         "optimizer": {"values": ["Adam", "SGD"]},
         "weight_decay": {"values": [0, 1e-5, 1e-3]},
+        "loss_fn": {"values": ["dice_ce", "focal", "focal_dice"]},
     },
 }
 
@@ -407,14 +408,21 @@ def train_smp_torch(num, args, sweep_id, sweep_run_name, config, train_loader, t
             epoch,
             cfg_model,
             class_weights_np=class_weights_np,
-            loss_fn=args.loss_fn
+            loss_fn=config['loss_fn']
         )
-    _, val_miou, val_mp_iou, val_oc_iou, val_si_iou, y_true, y_pred = unet_torch_validate(test_loader, model, epoch, scheduler, cfg_model)
+    _, val_miou, val_mp_iou, val_oc_iou, val_si_iou, y_true, y_pred, precision, recall, precision_macro, recall_macro, roc_auc = unet_torch_validate(test_loader, model, epoch, scheduler, cfg_model)
     cm = confusion_matrix(np.array(y_true).flatten(), np.array(y_pred).flatten(), normalize='true')
 
-    run.log(dict(val_mean_iou=val_miou, val_melt_pond_iou=val_mp_iou, val_ocean_iou=val_oc_iou, val_sea_ice_iou=val_si_iou))
+    precision_mp = precision[0]
+    precision_si = precision[1]
+    precision_oc = precision[2]
+    recall_mp = recall[0]
+    recall_si = recall[1]
+    recall_oc = recall[2]
+
+    run.log(dict(val_mean_iou=val_miou, val_melt_pond_iou=val_mp_iou, val_ocean_iou=val_oc_iou, val_sea_ice_iou=val_si_iou, precision_mp=precision_mp, precision_si=precision_si, precision_oc=precision_oc, recall_mp=recall_mp, recall_si=recall_si, recall_oc=recall_oc, precision_macro=precision_macro, recall_macro=recall_macro, roc_auc=roc_auc))
     run.finish()
-    return val_miou, val_mp_iou, val_oc_iou, val_si_iou, cm
+    return val_miou, val_mp_iou, val_oc_iou, val_si_iou, cm, precision, recall, precision_macro, recall_macro, roc_auc
 
 
 def cross_validate_smp_torch():
@@ -455,6 +463,15 @@ def cross_validate_smp_torch():
     metrics_mp_iou = []
     metrics_oc_iou = []
     metrics_si_iou = []
+    metrics_mp_precision = []
+    metrics_si_precision = []
+    metrics_oc_precision = []
+    metrics_mp_recall = []
+    metrics_si_recall = []
+    metrics_oc_recall = []
+    metrics_precision_macro = []
+    metrics_recall_macro = []
+    metrics_roc_auc = []
 
     confusion_matrices = []
 
@@ -472,7 +489,7 @@ def cross_validate_smp_torch():
             test_dataset, batch_size=1, shuffle=False, num_workers=4
         )
         reset_wandb_env()
-        val_miou, val_mp_iou, val_oc_iou, val_si_iou, cm = train_smp_torch(
+        val_miou, val_mp_iou, val_oc_iou, val_si_iou, cm, precision, recall, precision_macro, recall_macro, roc_auc = train_smp_torch(
             sweep_id=sweep_id,
             num=num,
             args=parser.parse_args(),
@@ -486,6 +503,15 @@ def cross_validate_smp_torch():
         metrics_mp_iou.append(val_mp_iou)
         metrics_oc_iou.append(val_oc_iou)
         metrics_si_iou.append(val_si_iou)
+        metrics_mp_precision.append(precision[0])
+        metrics_si_precision.append(precision[1])
+        metrics_oc_precision.append(precision[2])
+        metrics_mp_recall.append(recall[0])
+        metrics_si_recall.append(recall[1])
+        metrics_oc_recall.append(recall[2])
+        metrics_precision_macro.append(precision_macro)
+        metrics_recall_macro.append(recall_macro)
+        metrics_roc_auc.append(roc_auc)
 
         confusion_matrices.append(cm)
 
@@ -500,6 +526,15 @@ def cross_validate_smp_torch():
     sweep_run.log(dict(val_mean_iou=sum(metrics_miou) / len(metrics_miou)))
     sweep_run.log(dict(val_ocean_iou=sum(metrics_oc_iou) / len(metrics_oc_iou)))
     sweep_run.log(dict(val_sea_ice_iou=sum(metrics_si_iou) / len(metrics_si_iou)))
+    sweep_run.log(dict(precision_mp=sum(metrics_mp_precision) / len(metrics_mp_precision)))
+    sweep_run.log(dict(precision_si=sum(metrics_si_precision) / len(metrics_si_precision)))
+    sweep_run.log(dict(precision_oc=sum(metrics_oc_precision) / len(metrics_oc_precision)))
+    sweep_run.log(dict(recall_mp=sum(metrics_mp_recall) / len(metrics_mp_recall)))
+    sweep_run.log(dict(recall_si=sum(metrics_si_recall) / len(metrics_si_recall)))
+    sweep_run.log(dict(recall_oc=sum(metrics_oc_recall) / len(metrics_oc_recall)))
+    sweep_run.log(dict(precision_macro=sum(metrics_precision_macro) / len(metrics_precision_macro)))
+    sweep_run.log(dict(recall_macro=sum(metrics_recall_macro) / len(metrics_recall_macro)))
+    sweep_run.log(dict(roc_auc=sum(metrics_roc_auc) / len(metrics_roc_auc)))
     sweep_run.finish()
 
     print("*" * 40)

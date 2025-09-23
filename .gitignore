@@ -3,12 +3,13 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 wandb/
-git-lfs-3.5.1/
+git-lfs*
 
 # data
 *.nc
 *.npy
 *.png
+!image.png
 !data/training/*
 
 # checkpoints

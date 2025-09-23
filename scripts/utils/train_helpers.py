@@ -51,12 +51,14 @@ class FocalLoss(torch.nn.Module):
         # Convert logits to probabilities with softmax
         assert inputs.shape[-1] == num_classes
         probs = F.softmax(inputs, dim=-1)
+        log_probs = F.log_softmax(inputs, dim=-1)   # numerically stable log-softmax
 
         # One-hot encode the targets
         targets_one_hot = F.one_hot(targets, num_classes=num_classes).float()
 
         # Compute cross-entropy for each class
-        ce_loss = -targets_one_hot * torch.log(probs)
+        #ce_loss_old = -targets_one_hot * torch.log(probs)
+        ce_loss = -targets_one_hot * log_probs
 
         # Compute focal weight
         p_t = torch.sum(probs * targets_one_hot, dim=-1)  # p_t for each sample

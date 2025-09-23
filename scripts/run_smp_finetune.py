@@ -250,7 +250,7 @@ def main_worker(args, config):
             class_weights_np=class_weights_np,
             loss_fn=args.loss_fn
         )
-        _, _, mp_iou, _, _, _, _, precision, recall = validate(test_loader, model, epoch, scheduler, cfg_model, args)
+        _, _, mp_iou, _, _, _, _, _, _, _, _, _ = validate(test_loader, model, epoch, scheduler, cfg_model, args)
 
         # save model weights
         if mp_iou > best_mp_iou:
@@ -466,6 +466,19 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
 
     precision_micro = (tp_total / (tp_total + fp_total).clamp(min=1)).item()
     recall_micro = (tp_total / (tp_total + fn_total).clamp(min=1)).item()
+
+    if use_wandb:
+        wandb.log({"epoch": epoch, "val_precision_mp": precision[0].item()})
+        wandb.log({"epoch": epoch, "val_precision_si": precision[1].item()})
+        wandb.log({"epoch": epoch, "val_precision_oc": precision[2].item()})
+        wandb.log({"epoch": epoch, "val_precision_macro": precision_macro})
+        wandb.log({"epoch": epoch, "val_precision_micro": precision_micro})
+        wandb.log({"epoch": epoch, "val_recall_mp": recall[0].item()})
+        wandb.log({"epoch": epoch, "val_recall_si": recall[1].item()})
+        wandb.log({"epoch": epoch, "val_recall_oc": recall[2].item()})
+        wandb.log({"epoch": epoch, "val_recall_macro": recall_macro})
+        wandb.log({"epoch": epoch, "val_recall_micro": recall_micro})
+
     ######################
 
     # ROC AUC
