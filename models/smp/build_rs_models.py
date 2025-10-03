@@ -164,7 +164,6 @@ class PSPNet(PSPNet_SMP):
             weights=encoder_weights,
             pretrain=pretrain,
         )
-        
 
 class DeepLabV3Plus(DeepLabV3Plus_SMP):
     def __init__(
@@ -194,7 +193,6 @@ class DeepLabV3Plus(DeepLabV3Plus_SMP):
             output_stride=encoder_output_stride,
             pretrain=pretrain,
         )
-
 
 def create_model_rs(
     arch: str,

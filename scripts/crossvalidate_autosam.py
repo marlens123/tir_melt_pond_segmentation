@@ -11,6 +11,7 @@ import json
 import numpy as np
 import argparse
 from .utils.data import Dataset
+from .utils.preprocess_helpers import get_preprocessing
 from .utils.train_helpers import compute_class_weights, set_seed
 from models.AutoSAM.models.build_autosam_seg_model import sam_seg_model_registry
 
@@ -27,12 +28,12 @@ parser.add_argument(
 parser.add_argument(
     "--wandb_entity", type=str, default="sea-ice"
 )
-parser.add_argument(
-    "--loss_fn", type=str, default="dice_ce", choices=["dice_ce", "focal", "focal_dice"]
-)
+
+args = parser.parse_args() 
+pretrain = args.config.split("/")[-1].split(".")[0]
 
 autosam_sweep_configuration = {
-    "name": "sweep_autosam",
+    "name": f"sweep_autosam_{pretrain}",
     "method": "random",
     "metric": {"goal": "maximize", "name": "val_melt_pond_iou"},
     "parameters": {
@@ -41,7 +42,7 @@ autosam_sweep_configuration = {
         "batch_size": {"values": [1, 2, 4]},
         "optimizer": {"values": ["Adam", "SGD"]},
         "weight_decay": {"values": [0, 1e-5, 1e-3]},
-        "loss_fn": {"values": ["dice_ce", "focal", "focal_dice"]},
+        "loss_fn": {"values": ["dice_ce", "focal", "focal_dice_full", "focal_dice_half"]},
     },
 }
 
@@ -55,6 +56,7 @@ final_autosam_sweep_configuration = {
         "batch_size": {"values": [1]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0.001]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -68,6 +70,7 @@ final_autosam_sweep_configuration_no = {
         "batch_size": {"values": [2]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0.001]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -220,8 +223,8 @@ def cross_validate_autosam():
     metrics_roc_auc = []
 
     for num, (train, test) in enumerate(kfold.split(X, y)):
-        train_dataset = Dataset(cfg_model, cfg_training, mode="train", args=args, images=X[train], masks=y[train])
-        test_dataset = Dataset(cfg_model, cfg_training, mode="test", args=args, images=X[test], masks=y[test])
+        train_dataset = Dataset(cfg_model, cfg_training, mode="train", args=args, images=X[train], masks=y[train], preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]))
+        test_dataset = Dataset(cfg_model, cfg_training, mode="test", args=args, images=X[test], masks=y[test], preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]))
 
         train_loader = DataLoader(
             train_dataset,
@@ -260,20 +263,23 @@ def cross_validate_autosam():
 
     # resume the sweep run
     sweep_run = wandb.init(id=sweep_run_id, resume="must")
-    # log metric to sweep run
-    sweep_run.log(dict(val_melt_pond_iou=sum(metrics_mp_iou) / len(metrics_mp_iou)))
-    sweep_run.log(dict(val_mean_iou=sum(metrics_miou) / len(metrics_miou)))
-    sweep_run.log(dict(val_ocean_iou=sum(metrics_oc_iou) / len(metrics_oc_iou)))
-    sweep_run.log(dict(val_sea_ice_iou=sum(metrics_si_iou) / len(metrics_si_iou)))
-    sweep_run.log(dict(precision_mp=sum(metrics_mp_precision) / len(metrics_mp_precision)))
-    sweep_run.log(dict(precision_si=sum(metrics_si_precision) / len(metrics_si_precision)))
-    sweep_run.log(dict(precision_oc=sum(metrics_oc_precision) / len(metrics_oc_precision)))
-    sweep_run.log(dict(recall_mp=sum(metrics_mp_recall) / len(metrics_mp_recall)))
-    sweep_run.log(dict(recall_si=sum(metrics_si_recall) / len(metrics_si_recall)))
-    sweep_run.log(dict(recall_oc=sum(metrics_oc_recall) / len(metrics_oc_recall)))
-    sweep_run.log(dict(precision_macro=sum(metrics_precision_macro) / len(metrics_precision_macro)))
-    sweep_run.log(dict(recall_macro=sum(metrics_recall_macro) / len(metrics_recall_macro)))
-    sweep_run.log(dict(roc_auc=sum(metrics_roc_auc) / len(metrics_roc_auc)))
+    sweep_run.log(
+        {
+            "val_melt_pond_iou": sum(metrics_mp_iou) / len(metrics_mp_iou),
+            "val_mean_iou": sum(metrics_miou) / len(metrics_miou),
+            "val_ocean_iou": sum(metrics_oc_iou) / len(metrics_oc_iou),
+            "val_sea_ice_iou": sum(metrics_si_iou) / len(metrics_si_iou),
+            "precision_mp": sum(metrics_mp_precision) / len(metrics_mp_precision),
+            "precision_si": sum(metrics_si_precision) / len(metrics_si_precision),
+            "precision_oc": sum(metrics_oc_precision) / len(metrics_oc_precision),
+            "recall_mp": sum(metrics_mp_recall) / len(metrics_mp_recall),
+            "recall_si": sum(metrics_si_recall) / len(metrics_si_recall),
+            "recall_oc": sum(metrics_oc_recall) / len(metrics_oc_recall),
+            "precision_macro": sum(metrics_precision_macro) / len(metrics_precision_macro),
+            "recall_macro": sum(metrics_recall_macro) / len(metrics_recall_macro),
+            "roc_auc": sum(metrics_roc_auc) / len(metrics_roc_auc)
+        }
+    )
 
     sweep_run.finish()
 
@@ -300,7 +306,7 @@ def main():
     set_seed(args.seed)
 
     wandb.login()
-    sweep_id, count = wandb.sweep(sweep=sweep_config, project="melt_pond", entity=args.wandb_entity), counts
+    sweep_id, count = wandb.sweep(sweep=sweep_config, project="eds", entity=args.wandb_entity), counts
     wandb.agent(sweep_id, function=cross_validate_autosam, count=count)
 
     wandb.finish()

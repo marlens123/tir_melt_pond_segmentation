@@ -1,0 +1,9 @@
+[submodule "models/AutoSAM"]
+	path = models/AutoSAM
+	url = https://github.com/xhu248/AutoSAM.git
+[submodule "models/SAM2_UNet"]
+	path = models/SAM2_UNet
+	url = https://github.com/WZH0120/SAM2-UNet.git
+[submodule "models/satlaspretrain_models"]
+	path = models/satlaspretrain_models
+	url = https://github.com/allenai/satlaspretrain_models.git

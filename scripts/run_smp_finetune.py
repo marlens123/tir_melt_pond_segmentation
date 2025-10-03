@@ -26,6 +26,7 @@ from .utils.train_helpers import compute_class_weights, set_seed, FocalLoss
 from models.smp.build_rs_models import create_model_rs
 
 from sklearn.metrics import roc_auc_score, precision_score, recall_score
+from .utils.train_helpers import compute_pixel_distance_to_edge
 
 import wandb
 
@@ -71,6 +72,9 @@ parser.add_argument(
 parser.add_argument(
     "--arch", type=str, default="UnetPlusPlus", choices=["Unet", "UnetPlusPlus", "MAnet", "Linknet", "PSPNet", "DeepLabV3", "DeepLabV3Plus", "FPN", "PAN"]
 )
+parser.add_argument(
+    "--patch_sampling", default=False, action='store_true', help="whether to use patch sampling"
+)
 
 # wandb monitoring
 parser.add_argument(
@@ -91,8 +95,15 @@ parser.add_argument(
     '--loss_fn',
     default='dice_ce', 
     type=str, 
-    choices=['dice_ce', 'focal', 'focal_dice'],
+    choices=['dice_ce', 'focal', 'focal_dice_full', 'focal_dice_half'],
     help='loss function to use'
+)
+
+parser.add_argument(
+    '--label_uncertainty',
+    default=False,
+    action='store_true',
+    help='whether to use label uncertainty maps'
 )
 
 def main():
@@ -207,8 +218,14 @@ def main_worker(args, config):
         class_weights_np = None
 
     # Data loading code
-    train_dataset = Dataset(cfg_model, cfg_training, mode="train", args=args, preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]))
-    test_dataset = Dataset(cfg_model, cfg_training, mode="test", args=args, preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]))
+    if args.patch_sampling:
+        from .utils.data import PatchSamplingDataset
+        train_dataset = PatchSamplingDataset(cfg_model, cfg_training, mode="train", args=args, preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]))
+    else:
+        train_dataset = Dataset(cfg_model, cfg_training, mode="train", args=args, preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]))
+    
+    # for validation, do not use patch sampling to get realistic evaluation
+    test_dataset = Dataset(cfg_model, cfg_training, mode="test", args=args, preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]), im_size=480)
 
     train_loader = DataLoader(
         train_dataset,
@@ -229,7 +246,7 @@ def main_worker(args, config):
 
         wandb.init(
             entity=args.wandb_entity,
-            project='melt_pond',
+            project='eds',
             name=args.pref,
         )
         wandb.config.update(config)
@@ -248,7 +265,8 @@ def main_worker(args, config):
             cfg_model,
             args,
             class_weights_np=class_weights_np,
-            loss_fn=args.loss_fn
+            loss_fn=args.loss_fn,
+            label_uncertainty=args.label_uncertainty,
         )
         _, _, mp_iou, _, _, _, _, _, _, _, _, _ = validate(test_loader, model, epoch, scheduler, cfg_model, args)
 
@@ -278,7 +296,10 @@ def train(
     cfg_model,
     args=None,
     class_weights_np=None,
-    loss_fn="dice_ce"
+    loss_fn="dice_ce",
+    label_uncertainty=False,
+    teta=3.0,
+    arch=None
 ):
 
     if args is None:
@@ -294,7 +315,6 @@ def train(
     dice_loss = SoftDiceLoss(
         batch_dice=True, do_bg=False, rebalance_weights=class_weights_np
     )
-    dice_weight = 0.5
     ce_loss = torch.nn.CrossEntropyLoss(weight=class_weights)
     # switch to train mode
     model.train()
@@ -312,27 +332,68 @@ def train(
             img = tup[0].float()
             label = tup[1].long()
 
+        # compute distance maps for the batch if using label uncertainty
+        if label_uncertainty:
+            pixel_distances = compute_pixel_distance_to_edge(label.cpu().numpy(), teta=teta)
+
         # compute output
         start_time = time.time()
         mask = model.forward(img)
         end_time = time.time()
         print("Time for forward pass smp: ", end_time - start_time)
 
-        if loss_fn == "focal":
-            loss = focal_loss(mask, label.squeeze(1))
-        elif loss_fn == "focal_dice":
-            assert mask.shape[1] == 3
-            pred_softmax = F.softmax(mask, dim=1)
-            loss = focal_loss(mask, label.squeeze(1)) + dice_weight * dice_loss(
-                pred_softmax, label.squeeze(1)
-            )
-        elif loss_fn == "dice_ce":
-            assert mask.shape[1] == 3
-            pred_softmax = F.softmax(mask, dim=1)
-            loss = ce_loss(mask, label.squeeze(1)) + dice_loss(
-                pred_softmax, label.squeeze(1)
-            )
-        print("Time for loss calculation smp: ", time.time() - end_time)
+        if arch == "SAM2-UNet":
+            preds = model.forward(img)
+
+            losses = []
+            for mask in preds:
+                if loss_fn == "focal":
+                    loss = focal_loss(mask, label.squeeze(1))
+                elif loss_fn == "focal_dice_half":
+                    dice_weight = 0.5
+                    assert mask.shape[1] == 3, "got {}".format(mask.shape)
+                    pred_softmax = F.softmax(mask, dim=1)
+                    loss = focal_loss(mask, label.squeeze(1)) + dice_weight * dice_loss(
+                        pred_softmax, label.squeeze(1)
+                    )
+                elif loss_fn == "focal_dice_full":
+                    assert mask.shape[1] == 3, "got {}".format(mask.shape)
+                    pred_softmax = F.softmax(mask, dim=1)
+                    loss = focal_loss(mask, label.squeeze(1)) + dice_loss(
+                        pred_softmax, label.squeeze(1)
+                    )
+                elif loss_fn == "dice_ce":
+                    assert mask.shape[1] == 3, "got {}".format(mask.shape)
+                    pred_softmax = F.softmax(mask, dim=1)
+                    loss = ce_loss(mask, label.squeeze(1)) + dice_loss(
+                        pred_softmax, label.squeeze(1)
+                    )
+                losses.append(loss)
+            loss = sum(losses)
+
+        else:
+            if loss_fn == "focal":
+                loss = focal_loss(mask, label.squeeze(1), pixel_distances=pixel_distances if label_uncertainty else None)
+            elif loss_fn == "focal_dice_half":
+                dice_weight = 0.5
+                assert mask.shape[1] == 3
+                pred_softmax = F.softmax(mask, dim=1)
+                loss = focal_loss(mask, label.squeeze(1), pixel_distances=pixel_distances if label_uncertainty else None) + dice_weight * dice_loss(
+                    pred_softmax, label.squeeze(1)
+                )
+            elif loss_fn == "focal_dice_full":
+                assert mask.shape[1] == 3
+                pred_softmax = F.softmax(mask, dim=1)
+                loss = focal_loss(mask, label.squeeze(1), pixel_distances=pixel_distances if label_uncertainty else None) + dice_loss(
+                    pred_softmax, label.squeeze(1)
+                )
+            elif loss_fn == "dice_ce":
+                assert mask.shape[1] == 3
+                pred_softmax = F.softmax(mask, dim=1)
+                loss = ce_loss(mask, label.squeeze(1)) + dice_loss(
+                    pred_softmax, label.squeeze(1)
+                )
+            print("Time for loss calculation smp: ", time.time() - end_time)
 
         jaccard = JaccardIndex(task="multiclass", num_classes=cfg_model["num_classes"]).to(
             gpu
@@ -353,7 +414,7 @@ def train(
         wandb.log({"epoch": epoch, "train_jac": jac})
 
 
-def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
+def validate(val_loader, model, epoch, scheduler, cfg_model, args=None, arch=None):
     loss_list = []
     jac_list_mp = []
     jac_list_si = []
@@ -389,7 +450,10 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
             label_coll.append(label.squeeze(1).cpu())
 
             # compute output
-            mask = model.forward(img)
+            if arch == "SAM2-UNet":
+                mask, _, _ = model.forward(img)
+            else:
+                mask = model.forward(img)
             mask = mask.view(b, -1, h, w)
 
             assert mask.shape[1] == 3

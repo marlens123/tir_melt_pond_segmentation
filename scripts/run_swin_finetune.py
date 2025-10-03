@@ -1,7 +1,4 @@
-"""
-Inspired by 2023 Xinrong Hu et al. https://github.com/xhu248/AutoSAM/blob/main/scripts/main_autosam_seg.py
-"""
-
+# credit the authors
 import os
 import argparse
 import time
@@ -19,28 +16,49 @@ import torch.utils.data.distributed
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchmetrics import JaccardIndex
 
+from .utils.preprocess_helpers import get_preprocessing
+
 from models.AutoSAM.loss_functions.dice_loss import SoftDiceLoss
-from models.AutoSAM.models.build_autosam_seg_model import sam_seg_model_registry
 
 from torch.utils.data import DataLoader
 from .utils.data import Dataset
-from .utils.preprocess_helpers import get_preprocessing
 from .utils.train_helpers import compute_class_weights, set_seed, FocalLoss
-from sklearn.metrics import roc_auc_score
+
+from sklearn.metrics import roc_auc_score, precision_score, recall_score
 
 import wandb
+import numpy as np
+import os
+import torch
+import random
+import torch.nn
+import argparse
+import importlib.util
+import wandb
+import time
+import json
+import warnings
+from sklearn.metrics import roc_auc_score
+import torch.backends.cudnn as cudnn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+
+from models.satlaspretrain_models.satlaspretrain_models.model import Weights as SatlasWeights
+
+from models.swin_transformer.model import ImageNetWeights
+
 
 wandb.login()
 
-parser = argparse.ArgumentParser(description="PyTorch AutoSam Training")
+parser = argparse.ArgumentParser(description="PyTorch Unet Training")
 
 # prefix
 parser.add_argument(
-    "--pref", default="autosam_sa-1b", type=str, help="used for wandb logging"
+    "--pref", default="default", type=str, help="used for wandb logging"
 )
 
 # hyperparameters
-parser.add_argument("--path_to_config", default="configs/autosam/sa-1b.json", type=str, help="Path to config file that stores hyperparameter setting.")
+parser.add_argument("--path_to_config", default="configs/swinb/imnet.json", type=str, help="Path to config file that stores hyperparameter setting.")
 
 # processing
 parser.add_argument(
@@ -54,7 +72,7 @@ parser.add_argument(
 parser.add_argument(
     "--seed", default=84, type=int, help="seed for initializing training."
 )
-parser.add_argument("--gpu", default=0, type=int, help="GPU id to use.")
+parser.add_argument("--gpu", default=0, help="GPU id to use.")
 
 # data
 parser.add_argument(
@@ -79,12 +97,27 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--wandb_entity", type=str, default="sea-ice"
+    '--wandb_entity', 
+    default='sea-ice', 
+    type=str, 
+    help='wandb entity name'
 )
 
 parser.add_argument(
-    "--loss_fn", type=str, default="dice_ce", help="loss function to use", choices=["dice_ce", "focal", "focal_dice_full", "focal_dice_half"]
+    '--loss_fn',
+    default='dice_ce', 
+    type=str, 
+    choices=['dice_ce', 'focal', 'focal_dice_full', 'focal_dice_half'],
+    help='loss function to use'
 )
+
+args = parser.parse_args()
+
+if "swin" in args.path_to_config:
+    arch = "SwinTransformer"
+    swin_backbone = args.path_to_config.split("/")[1]
+elif "sam2_unet" in args.path_to_config:
+    arch = "SAM2-UNet"
 
 def main():
     args = parser.parse_args()
@@ -116,30 +149,58 @@ def main_worker(args, config):
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
 
-    # create model
-    if cfg_model["autosam_size"] == "vit_h":
-        model_checkpoint = "pretraining_checkpoints/segment_anything/sam_vit_h_4b8939.pth"
-        model = sam_seg_model_registry["vit_h"](
-            num_classes=cfg_model["num_classes"], checkpoint=model_checkpoint
-        )
-    elif cfg_model["autosam_size"] == "vit_l":
-        model_checkpoint = "pretraining_checkpoints/segment_anything/sam_vit_l_0b3195.pth"
-        model = sam_seg_model_registry["vit_l"](
-            num_classes=cfg_model["num_classes"], checkpoint=model_checkpoint
-        )
-    elif cfg_model["autosam_size"] == "vit_b":
-        if cfg_model["pretrain"] == "none":
-            model = sam_seg_model_registry["vit_b"](
-                num_classes=cfg_model["num_classes"],
-                checkpoint=None,
+    if arch == "SAM2-UNet":
+        from models.SAM2_UNet.SAM2UNet import SAM2UNet
+        if cfg_model["pretrain"] == "sam2_b+":
+            model = SAM2UNet(model_cfg="sam2_hiera_b+.yaml", checkpoint_path="pretraining_checkpoints/SAM_2/sam2_hiera_base_plus.pt")
+        elif cfg_model["pretrain"] == "sam2_l":
+            model = SAM2UNet(model_cfg="sam2_hiera_l.yaml", checkpoint_path="pretraining_checkpoints/SAM_2/sam2_hiera_large.pt")
+        elif cfg_model["pretrain"] == "none":
+            model = SAM2UNet(model_cfg="sam2_hiera_b+.yaml", checkpoint_path=None)
+
+    elif arch == "SwinTransformer":
+        if cfg_model["pretrain"] == "satlas":
+            from models.satlaspretrain_models.satlaspretrain_models.utils import Head
+
+            # load model weights from satlas
+            weights_manager = SatlasWeights()
+            model = weights_manager.get_pretrained_model(
+                model_identifier="Aerial_SwinB_SI",
+                fpn=True,
+                head=Head.SEGMENT,
+                num_categories=cfg_model["num_classes"],
+                device="cpu",
+            )
+
+        elif cfg_model["pretrain"] == "imagenet":
+            from models.swin_transformer.utils import Head
+
+            # load model weights from imagenet
+            weights_manager = ImageNetWeights()
+            model = weights_manager.get_pretrained_model(
+                backbone=cfg_model["backbone"],
+                fpn=True,
+                head=Head.SEGMENT,
+                num_categories=cfg_model["num_classes"],
+                device="cpu",
+            )
+        elif cfg_model["pretrain"] == "none":
+            from models.swin_transformer.utils import Head
+
+            # load model weights from imagenet
+            weights_manager = ImageNetWeights()
+            model = weights_manager.get_pretrained_model(
+                backbone=cfg_model["backbone"],
+                fpn=True,
+                head=Head.SEGMENT,
+                num_categories=cfg_model["num_classes"],
+                device="cpu",
+                weights=None,
             )
         else:
-            model_checkpoint = "pretraining_checkpoints/segment_anything/sam_vit_b_01ec64.pth"
-            model = sam_seg_model_registry["vit_b"](
-                num_classes=cfg_model["num_classes"],
-                checkpoint=model_checkpoint,
+            raise ValueError(
+                "Invalid pretraining dataset. Choose 'imagenet' or 'none'."
             )
-        print("Number of parameters: ", sum(p.numel() for p in model.parameters()))
 
     if args.gpu is not None:
         torch.cuda.set_device(args.gpu)
@@ -157,10 +218,18 @@ def main_worker(args, config):
 
     else:
         for name, param in model.named_parameters():
-            if param.requires_grad and "image_encoder" in name or "iou" in name:
-                param.requires_grad = False
+            if param.requires_grad and "encoder" in name or "iou" in name:
+                if "bn" in name:
+                    param.requires_grad = True
+                else:
+                    param.requires_grad = False
             else:
                 param.requires_grad = True
+
+    for name, param in model.named_parameters():
+        print(name)
+        if param.requires_grad:
+            print(name, "requires grad")
 
     if cfg_training["optimizer"] == "Adam":
         optimizer = torch.optim.Adam(
@@ -206,7 +275,7 @@ def main_worker(args, config):
 
     save_dir = "runs/" + args.pref
 
-    best_mp_iou = 0.38
+    best_mp_iou = 0.30
 
     # wandb setup
     if args.use_wandb and args is not None:
@@ -234,24 +303,23 @@ def main_worker(args, config):
             class_weights_np=class_weights_np,
             loss_fn=args.loss_fn
         )
-        _, _, mp_iou, _, _, _, _, _, _, _ = validate(test_loader, model, epoch, scheduler, cfg_model, args)
+        _, _, mp_iou, _, _, _, _, _, _, _, _, _ = validate(test_loader, model, epoch, scheduler, cfg_model, args)
 
-        # save model when melt pond IoU improved
+        # save model weights
         if mp_iou > best_mp_iou:
             best_mp_iou = mp_iou
             save_path = os.path.join("runs/", args.pref, "weights/")
             os.makedirs(save_path, exist_ok = True)
             torch.save(
-                model.state_dict(), os.path.join(save_path, "weights_autosam_epoch_{}.pth".format(epoch))
+                model.state_dict(), os.path.join(save_path, "weights_{0}_epoch_{1}.pth".format(arch, epoch))
             )
 
         if epoch == 145:
-            model_weights_path = os.path.join("models/", "weights/", "AutoSAM/")
+            model_weights_path = os.path.join("models/", "weights/", arch)
             os.makedirs(model_weights_path, exist_ok = True)
             torch.save(
                 model.state_dict(), os.path.join(model_weights_path, "{0}_epoch_{1}.pth".format(args.pref, epoch))
             )
-
 
 def train(
     train_loader,
@@ -272,17 +340,21 @@ def train(
         gpu = args.gpu
         use_wandb = args.use_wandb
 
+    batch_time = AverageMeter("Time", ":6.3f")
+    data_time = AverageMeter("Data", ":6.3f")
+    focal_loss = FocalLoss(alpha=class_weights, gamma=2, reduction='mean')
     dice_loss = SoftDiceLoss(
         batch_dice=True, do_bg=False, rebalance_weights=class_weights_np
     )
     ce_loss = torch.nn.CrossEntropyLoss(weight=class_weights)
-    focal_loss = FocalLoss(alpha=class_weights, gamma=2, reduction='mean')
-
     # switch to train mode
     model.train()
 
     end = time.time()
     for i, tup in enumerate(train_loader):
+        # measure data loading time
+        data_time.update(time.time() - end)
+        print("Number of parameters: ", sum(p.numel() for p in model.parameters()))
 
         if gpu is not None:
             img = tup[0].float().cuda(gpu, non_blocking=True)
@@ -290,37 +362,63 @@ def train(
         else:
             img = tup[0].float()
             label = tup[1].long()
-        b, _, h, w = img.shape
 
         # compute output
         start_time = time.time()
-        mask, _ = model(img)
-        end_time = time.time()
-        print("Time for forward pass autosam: ", end_time - start_time)
-        mask = mask.view(b, -1, h, w)
 
-        if loss_fn == "focal":
-            loss = focal_loss(mask, label.squeeze(1))
-        elif loss_fn == "focal_dice_half":
-            dice_weight = 0.5
-            assert mask.shape[1] == 3
-            pred_softmax = F.softmax(mask, dim=1)
-            loss = focal_loss(mask, label.squeeze(1)) + dice_weight * dice_loss(
-                pred_softmax, label.squeeze(1)
-            )
-        elif loss_fn == "focal_dice_full":
-            assert mask.shape[1] == 3
-            pred_softmax = F.softmax(mask, dim=1)
-            loss = focal_loss(mask, label.squeeze(1)) + dice_loss(
-                pred_softmax, label.squeeze(1)
-            )
-        elif loss_fn == "dice_ce":
-            assert mask.shape[1] == 3
-            pred_softmax = F.softmax(mask, dim=1)
-            loss = ce_loss(mask, label.squeeze(1)) + dice_loss(
-                pred_softmax, label.squeeze(1)
-            )
-        print("Time for loss computation autosam: ", time.time() - end_time)
+        if arch == "SAM2-UNet":
+            preds = model.forward(img)
+
+            losses = []
+            for mask in preds:
+                if loss_fn == "focal":
+                    loss = focal_loss(mask, label.squeeze(1))
+                elif loss_fn == "focal_dice_half":
+                    dice_weight = 0.5
+                    assert mask.shape[1] == 3, "got {}".format(mask.shape)
+                    pred_softmax = F.softmax(mask, dim=1)
+                    loss = focal_loss(mask, label.squeeze(1)) + dice_weight * dice_loss(
+                        pred_softmax, label.squeeze(1)
+                    )
+                elif loss_fn == "focal_dice_full":
+                    assert mask.shape[1] == 3, "got {}".format(mask.shape)
+                    pred_softmax = F.softmax(mask, dim=1)
+                    loss = focal_loss(mask, label.squeeze(1)) + dice_loss(
+                        pred_softmax, label.squeeze(1)
+                    )
+                elif loss_fn == "dice_ce":
+                    assert mask.shape[1] == 3, "got {}".format(mask.shape)
+                    pred_softmax = F.softmax(mask, dim=1)
+                    loss = ce_loss(mask, label.squeeze(1)) + dice_loss(
+                        pred_softmax, label.squeeze(1)
+                    )
+                losses.append(loss)
+            loss = sum(losses)
+
+        else:
+            mask = model.forward(img)
+
+            if loss_fn == "focal":
+                loss = focal_loss(mask, label.squeeze(1))
+            elif loss_fn == "focal_dice_half":
+                dice_weight = 0.5
+                assert mask.shape[1] == 3
+                pred_softmax = F.softmax(mask, dim=1)
+                loss = focal_loss(mask, label.squeeze(1)) + dice_weight * dice_loss(
+                    pred_softmax, label.squeeze(1)
+                )
+            elif loss_fn == "focal_dice_full":
+                assert mask.shape[1] == 3
+                pred_softmax = F.softmax(mask, dim=1)
+                loss = focal_loss(mask, label.squeeze(1)) + dice_loss(
+                    pred_softmax, label.squeeze(1)
+                )
+            elif loss_fn == "dice_ce":
+                assert mask.shape[1] == 3
+                pred_softmax = F.softmax(mask, dim=1)
+                loss = ce_loss(mask, label.squeeze(1)) + dice_loss(
+                    pred_softmax, label.squeeze(1)
+                )
 
         jaccard = JaccardIndex(task="multiclass", num_classes=cfg_model["num_classes"]).to(
             gpu
@@ -333,6 +431,7 @@ def train(
         optimizer.step()
 
         # measure elapsed time
+        batch_time.update(time.time() - end)
         end = time.time()
 
     if use_wandb:
@@ -346,14 +445,15 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
     jac_list_si = []
     jac_list_oc = []
     jac_mean = []
+    pred_coll = []
     label_coll = []
     prob_coll = []
-    pred_coll = []
+    dice_loss = SoftDiceLoss(batch_dice=True, do_bg=False)
+    model.eval()
+
     tp = [0] * cfg_model["num_classes"]
     fp = [0] * cfg_model["num_classes"]
     fn = [0] * cfg_model["num_classes"]
-    dice_loss = SoftDiceLoss(batch_dice=True, do_bg=False)
-    model.eval()
 
     if args is None:
         gpu = 0
@@ -375,10 +475,12 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
             label_coll.append(label.squeeze(1).cpu())
 
             # compute output
-            mask, iou_pred = model(img)
-            mask = mask.view(b, -1, h, w)
-            iou_pred = iou_pred.squeeze().view(b, -1)
-            iou_pred = torch.mean(iou_pred)
+            if arch == "SAM2-UNet":
+                mask, _, _ = model.forward(img)
+                mask = mask.view(b, -1, h, w)
+            else:
+                mask = model.forward(img)
+                mask = mask.view(b, -1, h, w)
 
             assert mask.shape[1] == 3
             pred_softmax = F.softmax(mask, dim=1)
@@ -390,12 +492,6 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
 
             pred = torch.argmax(mask, dim=1)
             pred_coll.append(pred.cpu())
-
-            # compute confusion stats per class
-            for c in range(cfg_model["num_classes"]):
-                tp[c] += torch.sum((pred == c) & (label.squeeze(1) == c)).item()
-                fp[c] += torch.sum((pred == c) & (label.squeeze(1) != c)).item()
-                fn[c] += torch.sum((pred != c) & (label.squeeze(1) == c)).item()
 
             jaccard = JaccardIndex(
                 task="multiclass", num_classes=cfg_model["num_classes"], average=None
@@ -411,6 +507,12 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
             jac_list_si.append(jac[1].item())
             jac_list_oc.append(jac[2].item())
             jac_mean.append(jac_m.item())
+
+            # compute confusion stats per class
+            for c in range(cfg_model["num_classes"]):
+                tp[c] += torch.sum((pred == c) & (label.squeeze(1) == c)).item()
+                fp[c] += torch.sum((pred == c) & (label.squeeze(1) != c)).item()
+                fn[c] += torch.sum((pred != c) & (label.squeeze(1) == c)).item()
 
             if use_wandb:
                 wandb.log({"epoch": epoch, "val_loss_{}".format(i): loss.item()})
@@ -430,8 +532,8 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
         scheduler.step(np.mean(loss_list))
 
     print(
-        "Validating: Epoch: %2d Loss: %.4f IoU_pred: %.4f"
-        % (epoch, np.mean(loss_list), iou_pred.item())
+        "Validating: Epoch: %2d Loss: %.4f"
+        % (epoch, np.mean(loss_list))
     )
 
     # PRECISION / RECALL
@@ -484,8 +586,32 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
 
     ######################
 
-    return np.mean(loss_list), np.mean(jac_mean), np.mean(jac_list_mp), np.mean(jac_list_oc), np.mean(jac_list_si), precision, recall, precision_macro, recall_macro, roc_auc_scores
+    return np.mean(loss_list), np.mean(jac_mean), np.mean(jac_list_mp), np.mean(jac_list_oc), np.mean(jac_list_si), label_coll, pred_coll, precision, recall, precision_macro, recall_macro, roc_auc_scores
 
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+
+    def __init__(self, name, fmt=":f"):
+        self.name = name
+        self.fmt = fmt
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+    def __str__(self):
+        fmtstr = "{name} {val" + self.fmt + "} ({avg" + self.fmt + "})"
+        return fmtstr.format(**self.__dict__)
 
 if __name__ == "__main__":
     start_time = time.time()

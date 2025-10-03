@@ -118,8 +118,9 @@ def to_tensor(x, **kwargs):
     return x.transpose(2, 0, 1).astype("float32")
 
 
-def get_preprocessing(pretraining=None):
-    """Construct preprocessing transform
+def get_preprocessing(pretraining):
+    """Construct preprocessing transform.
+    NOTE: normalization of imagenet, aid, rsd46-whu has already been done.
 
     Return:
         transform: albumentations.Compose
@@ -142,6 +143,12 @@ def get_preprocessing(pretraining=None):
         _transform = [
             A.Resize(height=256, width=256, p=1),
             A.Normalize(p=1.0),
+            A.Lambda(image=to_tensor, mask=to_tensor),
+        ]
+    elif pretraining == "none" or pretraining is None or pretraining == "sa-1b":
+        print("Using min max normalization")
+        _transform = [
+            A.Normalize(normalization="min_max", p=1.0),
             A.Lambda(image=to_tensor, mask=to_tensor),
         ]
     else:

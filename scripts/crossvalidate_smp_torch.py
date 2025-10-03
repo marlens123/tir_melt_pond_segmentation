@@ -16,6 +16,8 @@ import argparse
 from .utils.preprocess_helpers import get_preprocessing
 from sklearn.metrics import confusion_matrix
 from models.smp.build_rs_models import create_model_rs
+from models.swin_transformer.model import ImageNetWeights
+from .utils.data import PatchSamplingDataset
 
 parser = argparse.ArgumentParser(description="PyTorch Unet Training")
 parser.add_argument(
@@ -34,8 +36,14 @@ parser.add_argument(
     "--wandb_entity", type=str, default="sea-ice"
 )
 parser.add_argument(
-    "--loss_fn", type=str, default="dice_ce", choices=["dice_ce", "focal", "focal_dice"]
+    "--num_sweep_runs", type=int, default=50
 )
+parser.add_argument(
+    "--search_sweep_config", type=str, default= "all", choices=["all", "lr", "loss", "balance", "teta"]
+)
+
+args = parser.parse_args() 
+pretrain = args.config.split("/")[-1].split(".")[0]
 
 final_unet_sweep_configuration_imnet = {
     "name": "sweep_unet_torch",
@@ -47,6 +55,7 @@ final_unet_sweep_configuration_imnet = {
         "batch_size": {"values": [4]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [1e-5]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -60,6 +69,7 @@ final_unet_sweep_configuration_aid = {
         "batch_size": {"values": [2]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -73,6 +83,7 @@ final_unet_sweep_configuration_rsd = {
         "batch_size": {"values": [4]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -86,6 +97,7 @@ final_unet_sweep_configuration_no = {
         "batch_size": {"values": [4]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -99,6 +111,7 @@ final_unetplusplus_sweep_configuration_imnet = {
         "batch_size": {"values": [4]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0]},
+        "loss_fn": {"values": ["dice_ce"]},        
     },
 }
 
@@ -112,6 +125,7 @@ final_unetplusplus_sweep_configuration_aid = {
         "batch_size": {"values": [4]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0]},
+        "loss_fn": {"values": ["focal"]},
     },
 }
 
@@ -125,6 +139,7 @@ final_unetplusplus_sweep_configuration_rsd = {
         "batch_size": {"values": [2]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0.00001]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -138,6 +153,7 @@ final_unetplusplus_sweep_configuration_no = {
         "batch_size": {"values": [4]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -151,6 +167,7 @@ final_psp_sweep_configuration_imnet = {
         "batch_size": {"values": [2]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0.001]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -164,6 +181,7 @@ final_psp_sweep_configuration_aid = {
         "batch_size": {"values": [4]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0.001]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -177,6 +195,7 @@ final_psp_sweep_configuration_rsd = {
         "batch_size": {"values": [2]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0.001]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -190,6 +209,7 @@ final_psp_sweep_configuration_no = {
         "batch_size": {"values": [4]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -203,6 +223,7 @@ final_deeplab_sweep_configuration_imnet = {
         "batch_size": {"values": [2]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0.001]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -216,6 +237,7 @@ final_deeplab_sweep_configuration_aid = {
         "batch_size": {"values": [4]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0.001]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -229,6 +251,7 @@ final_deeplabplus_sweep_configuration_imnet = {
         "batch_size": {"values": [2]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0.001]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -242,6 +265,7 @@ final_deeplabplus_sweep_configuration_aid = {
         "batch_size": {"values": [4]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0.00001]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -255,6 +279,7 @@ final_deeplabplus_sweep_configuration_rsd = {
         "batch_size": {"values": [4]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0.00001]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -268,6 +293,7 @@ final_deeplabplus_sweep_configuration_no = {
         "batch_size": {"values": [4]},
         "optimizer": {"values": ["SGD"]},
         "weight_decay": {"values": [0.001]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -281,6 +307,7 @@ final_linknet_sweep_configuration = {
         "batch_size": {"values": [4]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [0]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
@@ -294,11 +321,12 @@ final_manet_sweep_configuration = {
         "batch_size": {"values": [4]},
         "optimizer": {"values": ["Adam"]},
         "weight_decay": {"values": [1e-5]},
+        "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
 smp_torch_sweep_configuration = {
-    "name": "sweep_smp_torch",
+    "name": f"sweep_smp_torch_{args.arch}_{pretrain}",
     "method": "random",
     "metric": {"goal": "maximize", "name": "val_melt_pond_iou"},
     "parameters": {
@@ -307,7 +335,66 @@ smp_torch_sweep_configuration = {
         "batch_size": {"values": [1, 2, 4]},
         "optimizer": {"values": ["Adam", "SGD"]},
         "weight_decay": {"values": [0, 1e-5, 1e-3]},
-        "loss_fn": {"values": ["dice_ce", "focal", "focal_dice"]},
+        "loss_fn": {"values": ["dice_ce", "focal", "focal_dice_full", "focal_dice_half"]},
+    },
+}
+
+lr_sweep_configuration = {
+    "name": f"sweep_lr_{args.arch}_{pretrain}",
+    "method": "random",
+    "metric": {"goal": "maximize", "name": "val_melt_pond_iou"},
+    "parameters": {
+        "learning_rate": {"values": [1e-4, 5e-4, 1e-3, 1e-2]},
+        "batch_size": {"values": [4]},
+        "im_size": {"values": [480]},
+        "weight_decay": {"values": [0]},
+        "optimizer": {"values": ["Adam"]},
+        "loss_fn": {"values": ["focal_dice_half"]},
+    },
+}
+
+loss_sweep_configuration = {
+    "name": f"sweep_loss_{args.arch}_{pretrain}",
+    "method": "grid",
+    "metric": {"goal": "maximize", "name": "val_melt_pond_iou"},
+    "parameters": {
+        "im_size": {"values": [480]},
+        "learning_rate": {"values": [5e-4]},
+        "batch_size": {"values": [4]},
+        "weight_decay": {"values": [0]},
+        "optimizer": {"values": ["Adam"]},
+        "loss_fn": {"values": ["dice_ce", "focal", "focal_dice_full", "focal_dice_half"]},
+    },
+}
+
+balance_sweep_configuration = {
+    "name": f"sweep_balance_{args.arch}_{pretrain}",
+    "method": "grid",
+    "metric": {"goal": "maximize", "name": "val_melt_pond_iou"},
+    "parameters": {
+        "im_size": {"values": [480]},
+        "learning_rate": {"values": [5e-4]},
+        "batch_size": {"values": [4]},
+        "weight_decay": {"values": [0]},
+        "optimizer": {"values": ["Adam"]},
+        "loss_fn": {"values": ["focal"]},
+        "balance_method": {"values": ["none", "patch_sampling", "pixel_distance", "ps128"]},
+    },
+}
+
+teta_sweep_configuration = {
+    "name": f"sweep_teta_{args.arch}_{pretrain}",
+    "method": "grid",
+    "metric": {"goal": "maximize", "name": "val_melt_pond_iou"},
+    "parameters": {
+        "im_size": {"values": [480]},
+        "learning_rate": {"values": [5e-4]},
+        "batch_size": {"values": [4]},
+        "weight_decay": {"values": [0]},
+        "optimizer": {"values": ["Adam"]},
+        "loss_fn": {"values": ["focal"]},
+        "balance_method": {"values": ["pixel_distance"]},
+        "teta": {"values": [1.0, 3.0, 9.0, 15.0]},
     },
 }
 
@@ -322,7 +409,8 @@ def reset_wandb_env():
             del os.environ[key]
 
 
-def train_smp_torch(num, args, sweep_id, sweep_run_name, config, train_loader, test_loader, class_weights):
+def train_smp_torch(num, sweep_id, sweep_run_name, config, train_loader, test_loader, class_weights):
+    args2 = parser.parse_args()
     run_name = f'{sweep_run_name}-{num}'
     run = wandb.init(
         group=sweep_id,
@@ -332,7 +420,7 @@ def train_smp_torch(num, args, sweep_id, sweep_run_name, config, train_loader, t
         reinit=True
     )
 
-    with open(args.config) as f:
+    with open(args2.config) as f:
         hyper_config = json.load(f)
 
     cfg_model = hyper_config['model']
@@ -344,25 +432,74 @@ def train_smp_torch(num, args, sweep_id, sweep_run_name, config, train_loader, t
     class_weights_np = class_weights
     class_weights = torch.from_numpy(class_weights).float().cuda(0)
 
-    # create model
-    if cfg_model["pretrain"] == "imagenet" or cfg_model["pretrain"] == None:
-        model = smp.create_model(
-            arch=args.arch,
-            encoder_name=cfg_model["backbone"],
-            encoder_weights=cfg_model["pretrain"],
-            in_channels=3,
-            classes=cfg_model["num_classes"],
-        )
-        print("using smp model")
+    if args2.arch == "SAM2-UNet":
+        from models.SAM2_UNet.SAM2UNet import SAM2UNet
+        if cfg_model["pretrain"] == "sam2_b+":
+            model = SAM2UNet(model_cfg="sam2_hiera_b+.yaml", checkpoint_path="pretraining_checkpoints/SAM_2/sam2_hiera_base_plus.pt")
+        elif cfg_model["pretrain"] == "sam2_l":
+            model = SAM2UNet(model_cfg="sam2_hiera_l.yaml", checkpoint_path="pretraining_checkpoints/SAM_2/sam2_hiera_large.pt")
+        elif cfg_model["pretrain"] == "none":
+            model = SAM2UNet(model_cfg="sam2_hiera_b+.yaml", checkpoint_path=None)
+
+    elif args2.arch == "SwinTransformer":
+        if cfg_model["pretrain"] == "imagenet":
+            from models.swin_transformer.utils import Head
+
+            # load model weights from imagenet
+            weights_manager = ImageNetWeights()
+            model = weights_manager.get_pretrained_model(
+                backbone=cfg_model["backbone"],
+                fpn=True,
+                head=Head.SEGMENT,
+                num_categories=cfg_model["num_classes"],
+                device="cpu",
+            )
+        elif cfg_model["pretrain"] == "none" or cfg_model["pretrain"] == None:
+            from models.swin_transformer.utils import Head
+
+            # load model weights from imagenet
+            weights_manager = ImageNetWeights()
+            model = weights_manager.get_pretrained_model(
+                backbone=cfg_model["backbone"],
+                fpn=True,
+                head=Head.SEGMENT,
+                num_categories=cfg_model["num_classes"],
+                device="cpu",
+                weights=None,
+            )
+        elif cfg_model["pretrain"] == "satlas":
+            from models.satlaspretrain_models.satlaspretrain_models.utils import Head
+            from models.satlaspretrain_models.satlaspretrain_models.model import Weights as SatlasWeights
+
+            # load model weights from satlas
+            weights_manager = SatlasWeights()
+            model = weights_manager.get_pretrained_model(
+                model_identifier="Aerial_SwinB_SI",
+                fpn=True,
+                head=Head.SEGMENT,
+                num_categories=cfg_model["num_classes"],
+                device="cpu",
+            )
     else:
-        model = create_model_rs(
-            arch=args.arch,
-            encoder_name=cfg_model["backbone"],
-            pretrain=cfg_model["pretrain"],
-            in_channels=3,
-            classes=cfg_model["num_classes"],
-        )
-        print("using custom model")
+        # create smp model
+        if cfg_model["pretrain"] == "imagenet" or cfg_model["pretrain"] == None:
+            model = smp.create_model(
+                arch=args2.arch,
+                encoder_name=cfg_model["backbone"],
+                encoder_weights=cfg_model["pretrain"],
+                in_channels=3,
+                classes=cfg_model["num_classes"],
+            )
+            print("using smp model")
+        else:
+            model = create_model_rs(
+                arch=args2.arch,
+                encoder_name=cfg_model["backbone"],
+                pretrain=cfg_model["pretrain"],
+                in_channels=3,
+                classes=cfg_model["num_classes"],
+            )
+            print("using custom model")
 
     torch.cuda.set_device(0)
     model = model.cuda(0)
@@ -399,6 +536,11 @@ def train_smp_torch(num, args, sweep_id, sweep_run_name, config, train_loader, t
 
     cudnn.benchmark = True
 
+    if 'balance_method' in config and config['balance_method'] == 'pixel_distance':
+        label_uncertainty = True
+    else:
+        label_uncertainty = False
+
     for epoch in range(150):
         unet_torch_train(
             train_loader,
@@ -408,9 +550,12 @@ def train_smp_torch(num, args, sweep_id, sweep_run_name, config, train_loader, t
             epoch,
             cfg_model,
             class_weights_np=class_weights_np,
-            loss_fn=config['loss_fn']
+            loss_fn=config['loss_fn'],
+            label_uncertainty=label_uncertainty,
+            teta=config['teta'] if 'teta' in config else 3.0,
+            arch=args2.arch
         )
-    _, val_miou, val_mp_iou, val_oc_iou, val_si_iou, y_true, y_pred, precision, recall, precision_macro, recall_macro, roc_auc = unet_torch_validate(test_loader, model, epoch, scheduler, cfg_model)
+    _, val_miou, val_mp_iou, val_oc_iou, val_si_iou, y_true, y_pred, precision, recall, precision_macro, recall_macro, roc_auc = unet_torch_validate(test_loader, model, epoch, scheduler, cfg_model, arch=args2.arch)
     cm = confusion_matrix(np.array(y_true).flatten(), np.array(y_pred).flatten(), normalize='true')
 
     precision_mp = precision[0]
@@ -426,8 +571,7 @@ def train_smp_torch(num, args, sweep_id, sweep_run_name, config, train_loader, t
 
 
 def cross_validate_smp_torch():
-    args=parser.parse_args()
-
+    args = parser.parse_args()
     num_folds = 3
 
     X_path = "data/training/all_images.npy"
@@ -476,8 +620,15 @@ def cross_validate_smp_torch():
     confusion_matrices = []
 
     for num, (train, test) in enumerate(kfold.split(X, y)):
-        train_dataset = Dataset(cfg_model, cfg_training, mode="train", args=args, preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]), images=X[train], masks=y[train])
-        test_dataset = Dataset(cfg_model, cfg_training, mode="test", args=args, preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]), images=X[test], masks=y[test])
+        if 'balance_method' in sweep_run.config and sweep_run.config['balance_method'] == 'patch_sampling':
+            train_dataset = PatchSamplingDataset(cfg_model, cfg_training, mode="train", args=args, preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]), images=X[train], masks=y[train])
+            test_dataset = Dataset(cfg_model, cfg_training, mode="test", args=args, preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]), images=X[test], masks=y[test])
+        elif 'balance_method' in sweep_run.config and sweep_run.config['balance_method'] == 'ps128':
+            train_dataset = Dataset(cfg_model, cfg_training, mode="train", args=args, preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]), images=X[train], masks=y[train], im_size=128)
+            test_dataset = Dataset(cfg_model, cfg_training, mode="test", args=args, preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]), images=X[test], masks=y[test])
+        else:
+            train_dataset = Dataset(cfg_model, cfg_training, mode="train", args=args, preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]), images=X[train], masks=y[train])
+            test_dataset = Dataset(cfg_model, cfg_training, mode="test", args=args, preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]), images=X[test], masks=y[test])
 
         train_loader = DataLoader(
             train_dataset,
@@ -492,7 +643,6 @@ def cross_validate_smp_torch():
         val_miou, val_mp_iou, val_oc_iou, val_si_iou, cm, precision, recall, precision_macro, recall_macro, roc_auc = train_smp_torch(
             sweep_id=sweep_id,
             num=num,
-            args=parser.parse_args(),
             sweep_run_name=sweep_run_name,
             config=dict(sweep_run.config),
             train_loader=train_loader,
@@ -515,26 +665,22 @@ def cross_validate_smp_torch():
 
         confusion_matrices.append(cm)
 
-    # average confusion matrices
-    confusion_matrix_avg = np.mean(np.stack(confusion_matrices, axis=0), axis=0)
-    np.save(f"confusion_matrix_{sweep_run_name}.npy", confusion_matrix_avg)
+    if args.final_sweep:
+        # average c0ßpö-onfusion matrices
+        confusion_matrix_avg = np.mean(np.stack(confusion_matrices, axis=0), axis=0)
+        np.save(f"confusion_matrices/confusion_matrix_{sweep_run_name}.npy", confusion_matrix_avg)
 
     # resume the sweep run
     sweep_run = wandb.init(id=sweep_run_id, resume="must")
     # log metric to sweep run
-    sweep_run.log(dict(val_melt_pond_iou=sum(metrics_mp_iou) / len(metrics_mp_iou)))
-    sweep_run.log(dict(val_mean_iou=sum(metrics_miou) / len(metrics_miou)))
-    sweep_run.log(dict(val_ocean_iou=sum(metrics_oc_iou) / len(metrics_oc_iou)))
-    sweep_run.log(dict(val_sea_ice_iou=sum(metrics_si_iou) / len(metrics_si_iou)))
-    sweep_run.log(dict(precision_mp=sum(metrics_mp_precision) / len(metrics_mp_precision)))
-    sweep_run.log(dict(precision_si=sum(metrics_si_precision) / len(metrics_si_precision)))
-    sweep_run.log(dict(precision_oc=sum(metrics_oc_precision) / len(metrics_oc_precision)))
-    sweep_run.log(dict(recall_mp=sum(metrics_mp_recall) / len(metrics_mp_recall)))
-    sweep_run.log(dict(recall_si=sum(metrics_si_recall) / len(metrics_si_recall)))
-    sweep_run.log(dict(recall_oc=sum(metrics_oc_recall) / len(metrics_oc_recall)))
-    sweep_run.log(dict(precision_macro=sum(metrics_precision_macro) / len(metrics_precision_macro)))
-    sweep_run.log(dict(recall_macro=sum(metrics_recall_macro) / len(metrics_recall_macro)))
-    sweep_run.log(dict(roc_auc=sum(metrics_roc_auc) / len(metrics_roc_auc)))
+    sweep_run.log(
+        {
+            "val_melt_pond_iou": sum(metrics_mp_iou) / len(metrics_mp_iou),
+            "val_mean_iou": sum(metrics_miou) / len(metrics_miou),
+            "val_ocean_iou": sum(metrics_oc_iou) / len(metrics_oc_iou),
+            "val_sea_ice_iou": sum(metrics_si_iou) / len(metrics_si_iou),
+        }
+    )
     sweep_run.finish()
 
     print("*" * 40)
@@ -610,9 +756,21 @@ def main():
     elif args.final_sweep and args.arch == "MAnet":
         sweep_config = final_manet_sweep_configuration
     else:
-        sweep_config = smp_torch_sweep_configuration
-        count = 100
-    sweep_id = wandb.sweep(sweep=sweep_config, project="melt_pond", entity=args.wandb_entity)
+        if args.search_sweep_config == "all":
+            sweep_config = smp_torch_sweep_configuration
+        elif args.search_sweep_config == "lr":
+            sweep_config = lr_sweep_configuration
+        elif args.search_sweep_config == "loss":
+            sweep_config = loss_sweep_configuration
+        elif args.search_sweep_config == "balance":
+            sweep_config = balance_sweep_configuration
+        elif args.search_sweep_config == "teta":
+            sweep_config = teta_sweep_configuration
+        else:
+            sweep_config = smp_torch_sweep_configuration
+        count = args.num_sweep_runs
+        print(f"hyperparameter sweep with count {count}")
+    sweep_id = wandb.sweep(sweep=sweep_config, project="eds", entity=args.wandb_entity)
     wandb.agent(sweep_id, function=cross_validate_smp_torch, count=count)
 
     wandb.finish()
