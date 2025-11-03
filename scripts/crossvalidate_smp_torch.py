@@ -551,8 +551,8 @@ def train_smp_torch(num, sweep_id, sweep_run_name, config, train_loader, test_lo
                 weights=None,
             )
         elif cfg_model["pretrain"] == "satlas":
-            from models.satlaspretrain_models.satlaspretrain_models.utils import Head
-            from models.satlaspretrain_models.satlaspretrain_models.model import Weights as SatlasWeights
+            from satlaspretrain_models.utils import Head
+            from models.satlaspretrain_models.model import Weights as SatlasWeights
 
             # load model weights from satlas
             weights_manager = SatlasWeights()

@@ -2,11 +2,3 @@
 	path = models/AutoSAM
 	#url = https://github.com/xhu248/AutoSAM.git
 	url = https://github.com/marlens123/tir_melt_pond_segmentation.git
-[submodule "models/SAM2-UNet"]
-	path = models/SAM2-UNet
-	#url = https://github.com/WZH0120/SAM2-UNet.git
-	url = https://github.com/marlens123/tir_melt_pond_segmentation.git
-[submodule "models/satlaspretrain_models"]
-	path = models/satlaspretrain_models
-	#url = https://github.com/allenai/satlaspretrain_models.git
-	url = https://github.com/marlens123/tir_melt_pond_segmentation.git

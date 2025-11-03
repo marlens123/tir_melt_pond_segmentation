@@ -45,7 +45,7 @@ import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from models.satlaspretrain_models.satlaspretrain_models.model import Weights as SatlasWeights
+from models.satlaspretrain_models.model import Weights as SatlasWeights
 
 from models.swin_transformer.model import ImageNetWeights
 
@@ -166,7 +166,7 @@ def main_worker(args, config):
 
     elif arch == "SwinTransformer":
         if cfg_model["pretrain"] == "satlas":
-            from models.satlaspretrain_models.satlaspretrain_models.utils import Head
+            from satlaspretrain_models.utils import Head
 
             # load model weights from satlas
             weights_manager = SatlasWeights()
