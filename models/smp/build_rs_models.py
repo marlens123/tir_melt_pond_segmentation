@@ -1,9 +1,14 @@
 # Costum adaptations to https://github.com/qubvel-org/segmentation_models.pytorch/tree/main to allow for custom weights to be loaded.
 
-from segmentation_models_pytorch.decoders.unetplusplus.model import UnetPlusPlus as UnetPlusPlus_SMP
+from models.smp.base_model_smp import SegmentationModel as SegmentationModel_Features
+from segmentation_models_pytorch.base.heads import SegmentationHead, ClassificationHead
 from segmentation_models_pytorch.decoders.unet.model import Unet as Unet_SMP
 from segmentation_models_pytorch.decoders.pspnet.model import PSPNet as PSPNet_SMP
 from segmentation_models_pytorch.decoders.deeplabv3.model import DeepLabV3Plus as DeepLabV3Plus_SMP
+from segmentation_models_pytorch.decoders.unetplusplus.decoder import UnetPlusPlusDecoder
+
+import warnings
+
 
 import torch
 from segmentation_models_pytorch.encoders import encoders
@@ -112,7 +117,10 @@ class Unet(Unet_SMP):
             pretrain=pretrain,
         )
 
-class UnetPlusPlus(UnetPlusPlus_SMP):
+# NOTE: Took UnetPlusPlus class completely from SMP to be able to inherit from our SegmentationModel_Features
+# adjusted the encoder to use our get_encoder_rs function
+class UnetPlusPlus(SegmentationModel_Features):
+
     def __init__(
         self,
         encoder_name: str = "resnet34",
@@ -125,10 +133,15 @@ class UnetPlusPlus(UnetPlusPlus_SMP):
         classes: int = 1,
         activation: _Optional[_Union[str, callable]] = None,
         aux_params: _Optional[dict] = None,
-        pretrain: _Optional[str] = None, 
-        **kwargs
+        pretrain: _Optional[str] = None,
+        get_features: bool = False,
     ):
-        super().__init__(encoder_name, encoder_depth, encoder_weights, decoder_use_batchnorm, decoder_channels, decoder_attention_type, in_channels, classes, activation, aux_params, **kwargs)
+        super().__init__()
+
+        if encoder_name.startswith("mit_b"):
+            raise ValueError(
+                "UnetPlusPlus is not support encoder_name={}".format(encoder_name)
+            )
 
         self.encoder = get_encoder_rs(
             encoder_name,
@@ -137,6 +150,32 @@ class UnetPlusPlus(UnetPlusPlus_SMP):
             weights=encoder_weights,
             pretrain=pretrain,
         )
+
+        self.decoder = UnetPlusPlusDecoder(
+            encoder_channels=self.encoder.out_channels,
+            decoder_channels=decoder_channels,
+            n_blocks=encoder_depth,
+            use_batchnorm=decoder_use_batchnorm,
+            center=True if encoder_name.startswith("vgg") else False,
+            attention_type=decoder_attention_type,
+        )
+
+        self.segmentation_head = SegmentationHead(
+            in_channels=decoder_channels[-1],
+            out_channels=classes,
+            activation=activation,
+            kernel_size=3,
+        )
+
+        if aux_params is not None:
+            self.classification_head = ClassificationHead(
+                in_channels=self.encoder.out_channels[-1], **aux_params
+            )
+        else:
+            self.classification_head = None
+
+        self.name = "unetplusplus-{}".format(encoder_name)
+        self.initialize()
 
 class PSPNet(PSPNet_SMP):
     def __init__(
@@ -201,6 +240,7 @@ def create_model_rs(
     in_channels: int = 3,
     classes: int = 1,
     pretrain: _Optional[str] = "imagenet",
+    get_features: bool = False,
     **kwargs,
 ) -> _torch.nn.Module:
     """
@@ -221,11 +261,23 @@ def create_model_rs(
                 arch, list(archs_dict.keys())
             )
         )
-    return model_class(
-        encoder_name=encoder_name,
-        encoder_weights=encoder_weights,
-        in_channels=in_channels,
-        classes=classes,
-        pretrain=pretrain,
-        **kwargs,
-    )
+    
+    if get_features: 
+        return model_class(
+            encoder_name=encoder_name,
+            encoder_weights=encoder_weights,
+            in_channels=in_channels,
+            classes=classes,
+            pretrain=pretrain,
+            get_features=get_features,
+            **kwargs,
+        )
+    else:
+        return model_class(
+            encoder_name=encoder_name,
+            encoder_weights=encoder_weights,
+            in_channels=in_channels,
+            classes=classes,
+            pretrain=pretrain,
+            **kwargs,
+        )

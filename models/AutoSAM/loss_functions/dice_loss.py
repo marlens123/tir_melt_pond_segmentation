@@ -56,7 +56,7 @@ class SoftDiceLoss(nn.Module):
         """
         super(SoftDiceLoss, self).__init__()
         if not do_bg:
-            assert background_weight == 1, "if there is no bg, then set background weight to 1 you dummy"
+            assert background_weight == 1, "if there is no bg, then set background weight to 1"
         self.rebalance_weights = rebalance_weights
         self.background_weight = background_weight
         self.smooth_in_nom = smooth_in_nom

@@ -35,8 +35,10 @@ class AutoSamSeg(nn.Module):
         self.mask_decoder = seg_decoder
         self.pe_layer = PositionEmbeddingRandom(128)
 
-    def forward(self,
-                x):
+    def forward(self, x):
+        # MODIFIED: use SA-1B preprocessing
+        # feed images one at a time through preprocessing
+        #x = torch.stack([self.preprocess(sample) for sample in x], dim=0)
         original_size = x.shape[-1]
         x = F.interpolate(
             x,
@@ -69,3 +71,15 @@ class AutoSamSeg(nn.Module):
         image_embedding = self.image_encoder(x)
         out = nn.functional.adaptive_avg_pool2d(image_embedding, 1).squeeze()
         return out
+
+    def preprocess(self, x: torch.Tensor) -> torch.Tensor:
+        """Normalize pixel values and pad to a square input."""
+        # Normalize colors
+        pixel_mean = [123.675, 116.28, 103.53]
+        pixel_std = [58.395, 57.12, 57.375]
+        self.register_buffer("pixel_mean", torch.Tensor(pixel_mean).view(-1, 1, 1), False)
+        self.register_buffer("pixel_std", torch.Tensor(pixel_std).view(-1, 1, 1), False)
+        print("Uses SAM preprocessing with mean:", self.pixel_mean.flatten().tolist(), " and std:", self.pixel_std.flatten().tolist())
+        x = (x - self.pixel_mean.to(x.device)) / self.pixel_std.to(x.device)
+
+        return x

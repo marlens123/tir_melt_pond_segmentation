@@ -14,11 +14,15 @@ The dataset used in this project is available in full on [PANGAEA](https://doi.o
 ## Acknowledgments
 This project includes code from the following sources:
 
-- [AutoSAM](https://github.com/xhu248/AutoSAM), which is licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0). The respective code, license, and further information can be found in `models/`.
+- [AutoSAM](https://github.com/xhu248/AutoSAM), which is licensed under [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0). The respective code, license, and further information can be found in `models/`.
 - [Segmentation Models](https://github.com/qubvel-org/segmentation_models.pytorch), which is licensed under the MIT license.
+- [Satlas Pretrain](https://github.com/allenai/satlaspretrain_models), which is licensed under [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+- [SAM2 UNet](https://github.com/WZH0120/SAM2-UNet), which is licensed under [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+- [Pytorch_FID](https://github.com/mseitzer/pytorch-fid), which is licensed under [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+- [DMT](https://github.com/voldemortX/DST-CBC?tab=readme-ov-file), licensed under [BSD 3-Clause License](https://opensource.org/license/bsd-3-clause).
 
-AutoSAM itself relies on code from [SAM](https://github.com/facebookresearch/segment-anything/). We gratefully acknowledge all original authors for making their code available.
-We further acknowledge the authors of [remote_sensing_pretrained_models](https://github.com/lsh1994/remote_sensing_pretrained_models?tab=readme-ov-file) for making the pre-trained checkpoints publicly available.
+AutoSAM itself relies on code from [SAM](https://github.com/facebookresearch/segment-anything/) and SAM2 UNet relies on code from [SAM2](https://github.com/facebookresearch/sam2). We gratefully acknowledge all original authors for making their code available.
+We further acknowledge the authors of [remote_sensing_pretrained_models](https://github.com/lsh1994/remote_sensing_pretrained_models?tab=readme-ov-file) for making the pre-trained checkpoints for AID and RSD46-WHU publicly available.
 
 ## Getting Started
 
@@ -45,6 +49,7 @@ This repository relies on pre-training checkpoints from the following sources:
             `resnet34-epoch.19-val_acc.0.921.ckpt` (RSD46-WHU)
 
 2) [SAM](https://github.com/facebookresearch/segment-anything/) (Apache License 2.0)
+3) [SAM2](https://github.com/facebookresearch/sam2) (Apache License 2.0)
 
 Please store all downloaded checkpoints in the respective folders within the `pretraining_checkpoints/` directory.
 
