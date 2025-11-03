@@ -4,9 +4,9 @@ import numpy as np
 from .preprocess_helpers import expand_greyscale_channels, get_training_augmentation, get_preprocessing, patch_extraction
 from torch.utils.data import Dataset as BaseDataset
 from segmentation_models_pytorch.encoders import get_preprocessing_fn
-import torch
 import random
-
+import os
+import cv2
 
 class Dataset(BaseDataset):
     """Read images, apply augmentation and preprocessing transformations.
@@ -28,9 +28,11 @@ class Dataset(BaseDataset):
         preprocessing_fn=get_preprocessing_fn(encoder_name="resnet34", pretrained="imagenet"),
         images = None,
         masks = None,
-        im_size = None
+        im_size = None,
+        num_classes = 3,
     ):
         self.mode = mode
+        self.num_classes = num_classes
 
         if im_size is not None:
             self.im_size = im_size
@@ -55,8 +57,6 @@ class Dataset(BaseDataset):
             else:
                 print("Specified mode must be either 'train' or 'test'")
 
-        self.normalize = cfg_training["z_score_normalize"]
-
         self.augmentation = cfg_training["augmentation"]
         self.augment_mode = cfg_training["augmentation_mode"]
 
@@ -71,18 +71,12 @@ class Dataset(BaseDataset):
         image = self.images_fps[i]
         # reshape to 3 dims in last channel
         image = expand_greyscale_channels(image)
+        image = image.astype(np.float32)
 
         mask = self.masks_fps[i]
         mask = np.array(mask)
-
         mask = np.expand_dims(mask, axis=-1)
-        image = image.astype(np.float32)
         mask = mask.astype(np.float32)
-
-        # apply normalization
-        if self.normalize:
-            # z-score normalization
-            image = (image - image.mean()) / image.std()
 
         if self.mode == "train" and self.augmentation:
             augmentation = get_training_augmentation(
@@ -143,6 +137,7 @@ class PatchSamplingDataset(BaseDataset):
             self.masks_fps = masks.tolist()
         else:
             if self.mode == "train":
+                # load normally, then find minority class pixels
                 X_train, y_train = patch_extraction(np.load(args.path_to_X_train), np.load(args.path_to_y_train), size=self.im_size)
 
                 for img_idx, mask in enumerate(y_train):
@@ -159,8 +154,6 @@ class PatchSamplingDataset(BaseDataset):
             else:
                 print("Specified mode must be either 'train' or 'test'")
 
-        self.normalize = cfg_training["z_score_normalize"]
-
         self.augmentation = cfg_training["augmentation"]
         self.augment_mode = cfg_training["augmentation_mode"]
 
@@ -173,22 +166,22 @@ class PatchSamplingDataset(BaseDataset):
 
     def __getitem__(self, idx):
         if random.random() < self.oversample_prob and len(self.minority_coords) > 0:
-            # Pick a pixel from the minority class
+            # pick pixel from the minority class
             img_idx, y, x = random.choice(self.minority_coords)
             img, mask = np.array(self.images_fps[img_idx]).astype(np.float32), np.array(self.masks_fps[img_idx]).astype(np.float32)
 
-            # Center patch around (y, x) with padding
+            # center patch around (y, x)
             y0 = max(0, min(y - self.patch_size // 2, img.shape[0] - self.patch_size))
             x0 = max(0, min(x - self.patch_size // 2, img.shape[1] - self.patch_size))
 
         else:
-            # Sample a random location normally
+            # else sample a random patch
             img_idx = random.randrange(len(self.images_fps))
             img, mask = np.array(self.images_fps[img_idx]).astype(np.float32), np.array(self.masks_fps[img_idx]).astype(np.float32)
             y0 = random.randint(0, img.shape[0] - self.patch_size)
             x0 = random.randint(0, img.shape[1] - self.patch_size)
 
-        # Crop patch
+        # crop patch
         y1, x1 = y0 + self.patch_size, x0 + self.patch_size
         assert y1 <= img.shape[0] and x1 <= img.shape[1], f"Patch exceeds image boundaries with {y1}, {x1} vs {img.shape}, where y0={y0}, x0={x0}"
         patch_img = img[y0:y1, x0:x1]
@@ -197,11 +190,6 @@ class PatchSamplingDataset(BaseDataset):
         # reshape to 3 dims in last channel
         patch_img = expand_greyscale_channels(patch_img)
         patch_mask = np.expand_dims(patch_mask, axis=-1)
-
-        # apply normalization
-        if self.normalize:
-            # z-score normalization
-            patch_img = (patch_img - patch_img.mean()) / patch_img.std()
 
         if self.mode == "train" and self.augmentation:
             augmentation = get_training_augmentation(

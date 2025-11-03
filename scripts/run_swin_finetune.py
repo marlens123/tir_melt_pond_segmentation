@@ -22,9 +22,11 @@ from models.AutoSAM.loss_functions.dice_loss import SoftDiceLoss
 
 from torch.utils.data import DataLoader
 from .utils.data import Dataset
-from .utils.train_helpers import compute_class_weights, set_seed, FocalLoss
+from .utils.train_helpers import compute_class_weights, set_seed
+from .utils.losses import FocalLoss
 
 from sklearn.metrics import roc_auc_score, precision_score, recall_score
+from .run_smp_finetune import validate
 
 import wandb
 import numpy as np
@@ -155,6 +157,10 @@ def main_worker(args, config):
             model = SAM2UNet(model_cfg="sam2_hiera_b+.yaml", checkpoint_path="pretraining_checkpoints/SAM_2/sam2_hiera_base_plus.pt")
         elif cfg_model["pretrain"] == "sam2_l":
             model = SAM2UNet(model_cfg="sam2_hiera_l.yaml", checkpoint_path="pretraining_checkpoints/SAM_2/sam2_hiera_large.pt")
+        elif cfg_model["pretrain"] == "sam2_s":
+            model = SAM2UNet(model_cfg="sam2_hiera_s.yaml", checkpoint_path="pretraining_checkpoints/SAM_2/sam2_hiera_small.pt")
+        elif cfg_model["pretrain"] == "sam2_t":
+            model = SAM2UNet(model_cfg="sam2_hiera_t.yaml", checkpoint_path="pretraining_checkpoints/SAM_2/sam2_hiera_tiny.pt")
         elif cfg_model["pretrain"] == "none":
             model = SAM2UNet(model_cfg="sam2_hiera_b+.yaml", checkpoint_path=None)
 
@@ -303,7 +309,7 @@ def main_worker(args, config):
             class_weights_np=class_weights_np,
             loss_fn=args.loss_fn
         )
-        _, _, mp_iou, _, _, _, _, _, _, _, _, _ = validate(test_loader, model, epoch, scheduler, cfg_model, args)
+        _, _, mp_iou, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = validate(test_loader, model, epoch, scheduler, cfg_model, args)
 
         # save model weights
         if mp_iou > best_mp_iou:
@@ -344,7 +350,7 @@ def train(
     data_time = AverageMeter("Data", ":6.3f")
     focal_loss = FocalLoss(alpha=class_weights, gamma=2, reduction='mean')
     dice_loss = SoftDiceLoss(
-        batch_dice=True, do_bg=False, rebalance_weights=class_weights_np
+        batch_dice=True, do_bg=True, rebalance_weights=None
     )
     ce_loss = torch.nn.CrossEntropyLoss(weight=class_weights)
     # switch to train mode
@@ -368,6 +374,9 @@ def train(
 
         if arch == "SAM2-UNet":
             preds = model.forward(img)
+
+            # interpolate to original size
+            preds = [F.interpolate(pred, size=(cfg_model["im_size"], cfg_model["im_size"]), mode="bilinear", align_corners=False) for pred in preds]
 
             losses = []
             for mask in preds:
@@ -437,157 +446,6 @@ def train(
     if use_wandb:
         wandb.log({"epoch": epoch, "train_loss": loss})
         wandb.log({"epoch": epoch, "train_jac": jac})
-
-
-def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
-    loss_list = []
-    jac_list_mp = []
-    jac_list_si = []
-    jac_list_oc = []
-    jac_mean = []
-    pred_coll = []
-    label_coll = []
-    prob_coll = []
-    dice_loss = SoftDiceLoss(batch_dice=True, do_bg=False)
-    model.eval()
-
-    tp = [0] * cfg_model["num_classes"]
-    fp = [0] * cfg_model["num_classes"]
-    fn = [0] * cfg_model["num_classes"]
-
-    if args is None:
-        gpu = 0
-        use_wandb = False
-    else:
-        gpu = args.gpu
-        use_wandb = args.use_wandb
-
-    with torch.no_grad():
-        for i, tup in enumerate(val_loader):
-            if gpu is not None:
-                img = tup[0].float().cuda(gpu, non_blocking=True)
-                label = tup[1].long().cuda(gpu, non_blocking=True)
-            else:
-                img = tup[0]
-                label = tup[1]
-            b, _, h, w = img.shape
-
-            label_coll.append(label.squeeze(1).cpu())
-
-            # compute output
-            if arch == "SAM2-UNet":
-                mask, _, _ = model.forward(img)
-                mask = mask.view(b, -1, h, w)
-            else:
-                mask = model.forward(img)
-                mask = mask.view(b, -1, h, w)
-
-            assert mask.shape[1] == 3
-            pred_softmax = F.softmax(mask, dim=1)
-            prob_coll.append(pred_softmax.cpu())
-            loss = dice_loss(
-                pred_softmax, label.squeeze(1)
-            )  # self.ce_loss(pred, target.squeeze())
-            loss_list.append(loss.item())
-
-            pred = torch.argmax(mask, dim=1)
-            pred_coll.append(pred.cpu())
-
-            jaccard = JaccardIndex(
-                task="multiclass", num_classes=cfg_model["num_classes"], average=None
-            ).to(gpu)
-            jaccard_mean = JaccardIndex(
-                task="multiclass", num_classes=cfg_model["num_classes"]
-            ).to(gpu)
-
-            jac = jaccard(pred_softmax, label.squeeze(1))
-            jac_m = jaccard_mean(pred_softmax, label.squeeze(1))
-
-            jac_list_mp.append(jac[0].item())
-            jac_list_si.append(jac[1].item())
-            jac_list_oc.append(jac[2].item())
-            jac_mean.append(jac_m.item())
-
-            # compute confusion stats per class
-            for c in range(cfg_model["num_classes"]):
-                tp[c] += torch.sum((pred == c) & (label.squeeze(1) == c)).item()
-                fp[c] += torch.sum((pred == c) & (label.squeeze(1) != c)).item()
-                fn[c] += torch.sum((pred != c) & (label.squeeze(1) == c)).item()
-
-            if use_wandb:
-                wandb.log({"epoch": epoch, "val_loss_{}".format(i): loss.item()})
-                wandb.log({"epoch": epoch, "val_jac_mp_{}".format(i): jac[0].item()})
-                wandb.log({"epoch": epoch, "val_jac_si_{}".format(i): jac[1].item()})
-                wandb.log({"epoch": epoch, "val_jac_oc_{}".format(i): jac[2].item()})
-                wandb.log({"epoch": epoch, "val_jac_{}".format(i): jac_m.item()})
-
-    if use_wandb:
-        wandb.log({"epoch": epoch, "val_loss": np.mean(loss_list)})
-        wandb.log({"epoch": epoch, "val_jac_mp": np.mean(jac_list_mp)})
-        wandb.log({"epoch": epoch, "val_jac_si": np.mean(jac_list_si)})
-        wandb.log({"epoch": epoch, "val_jac_oc": np.mean(jac_list_oc)})
-        wandb.log({"epoch": epoch, "val_jac": np.mean(jac_mean)})
-
-    if epoch >= 10:
-        scheduler.step(np.mean(loss_list))
-
-    print(
-        "Validating: Epoch: %2d Loss: %.4f"
-        % (epoch, np.mean(loss_list))
-    )
-
-    # PRECISION / RECALL
-    ####################
-    tp = torch.tensor(tp)
-    fp = torch.tensor(fp)
-    fn = torch.tensor(fn)
-
-    tp_total = tp.sum().float()
-    fp_total = fp.sum().float()
-    fn_total = fn.sum().float()
-
-    # compute precision/recall per class
-    precision = tp.float() / (tp + fp).clamp(min=1)
-    recall = tp.float() / (tp + fn).clamp(min=1)
-
-    # you can also average (macro) or weight by class frequency (micro)
-    precision_macro = precision.mean().item()
-    recall_macro = recall.mean().item()
-
-    precision_micro = (tp_total / (tp_total + fp_total).clamp(min=1)).item()
-    recall_micro = (tp_total / (tp_total + fn_total).clamp(min=1)).item()
-
-    if use_wandb:
-        wandb.log({"epoch": epoch, "val_precision_mp": precision[0].item()})
-        wandb.log({"epoch": epoch, "val_precision_si": precision[1].item()})
-        wandb.log({"epoch": epoch, "val_precision_oc": precision[2].item()})
-        wandb.log({"epoch": epoch, "val_precision_macro": precision_macro})
-        wandb.log({"epoch": epoch, "val_precision_micro": precision_micro})
-        wandb.log({"epoch": epoch, "val_recall_mp": recall[0].item()})
-        wandb.log({"epoch": epoch, "val_recall_si": recall[1].item()})
-        wandb.log({"epoch": epoch, "val_recall_oc": recall[2].item()})
-        wandb.log({"epoch": epoch, "val_recall_macro": recall_macro})
-        wandb.log({"epoch": epoch, "val_recall_micro": recall_micro})
-
-    ######################
-
-    # ROC AUC
-    ######################
-    y_scores = np.concatenate(prob_coll, axis=0)
-    y_true = np.concatenate(label_coll, axis=0)
-
-    roc_auc_scores = []
-
-    for c in range(cfg_model["num_classes"]):
-        y_true_c = (y_true == c).flatten()
-        y_scores_c = y_scores[:, c].flatten()
-        roc_auc = roc_auc_score(y_true_c, y_scores_c)
-        roc_auc_scores.append(roc_auc)
-
-    ######################
-
-    return np.mean(loss_list), np.mean(jac_mean), np.mean(jac_list_mp), np.mean(jac_list_oc), np.mean(jac_list_si), label_coll, pred_coll, precision, recall, precision_macro, recall_macro, roc_auc_scores
-
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""

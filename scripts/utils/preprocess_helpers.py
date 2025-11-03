@@ -27,7 +27,7 @@ def crop_center_square(image, im_size=480):
 def round_clip_0_1(x, **kwargs):
     return x.round().clip(0, 1)
 
-def get_training_augmentation(im_size=480, augment_mode=1):
+def get_training_augmentation(im_size=480, augment_mode=1, h=None, w=None):
     """
     structure inspired by https://github.com/qubvel/segmentation_models/blob/master/examples/multiclass%20segmentation%20(camvid).ipynb
 
@@ -42,6 +42,7 @@ def get_training_augmentation(im_size=480, augment_mode=1):
     -------
         train_transform : albumentations.compose
     """
+
     if augment_mode == 0:
         train_transform = [
             A.HorizontalFlip(p=0.5),
@@ -115,10 +116,11 @@ def get_training_augmentation(im_size=480, augment_mode=1):
 
 
 def to_tensor(x, **kwargs):
+    assert x.ndim == 3, f"Image must have 3 dims. Got {x.ndim} dims and shape {x.shape}."
     return x.transpose(2, 0, 1).astype("float32")
 
 
-def get_preprocessing(pretraining):
+def get_preprocessing(pretraining, h=None, w=None):
     """Construct preprocessing transform.
     NOTE: normalization of imagenet, aid, rsd46-whu has already been done.
 

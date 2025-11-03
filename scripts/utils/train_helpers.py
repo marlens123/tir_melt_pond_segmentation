@@ -18,6 +18,20 @@ def compute_class_weights(train_masks):
     )
     return class_weights
 
+def compute_class_frequencies(train_masks):
+    
+    if isinstance(train_masks, str):
+        train_masks = np.load(train_masks)
+
+    total_pixels = train_masks.flatten().shape[0]
+    class_frequencies = []
+    for cls in range(3):  # assuming classes are 0, 1, 2
+        class_count = np.sum(train_masks == cls)
+        class_frequency = class_count / total_pixels
+        class_frequencies.append(class_frequency)
+
+    return class_frequencies
+
 def compute_pixel_distance_to_edge(train_masks, teta=3.0):
     # compute the pixel-wise distance to the edge of the object
     if isinstance(train_masks, str):
@@ -57,72 +71,3 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
-class FocalLoss(torch.nn.Module):
-    def __init__(self, alpha=[0.25, 0.25, 0.25], gamma=2, reduction='mean'):
-        super(FocalLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
-
-        if self.alpha is not None and isinstance(self.alpha, (list, torch.Tensor)):
-            if isinstance(self.alpha, list):
-                self.alpha = torch.Tensor(self.alpha)
-
-    def focal_loss_multiclass(self, inputs, targets, num_classes, distance_map=None):
-        """ Focal loss for multi-class classification. """
-
-        # this is only true for our case
-        assert num_classes == 3
-
-        if self.alpha is not None:
-            self.alpha = self.alpha.to(inputs.device)
-        
-        # convert distance map to tensor if not None
-        if distance_map is not None and not isinstance(distance_map, torch.Tensor):
-            distance_map = torch.tensor(distance_map, dtype=torch.float32).to(inputs.device)
-
-        # Convert logits to probabilities with softmax
-        assert inputs.shape[-1] == num_classes
-        probs = F.softmax(inputs, dim=-1)
-        log_probs = F.log_softmax(inputs, dim=-1)   # numerically stable log-softmax
-
-        # One-hot encode the targets
-        targets_one_hot = F.one_hot(targets, num_classes=num_classes).float()
-
-        # Compute cross-entropy for each class
-        #ce_loss_old = -targets_one_hot * torch.log(probs)
-        ce_loss = -targets_one_hot * log_probs
-
-        # Compute focal weight
-        p_t = torch.sum(probs * targets_one_hot, dim=-1)  # p_t for each sample
-        focal_weight = (1 - p_t) ** self.gamma
-
-        # Apply alpha if provided (per-class weighting)
-        if self.alpha is not None:
-            # we need to handle that alpha has shape (C,) and ce_loss has shape (B, H, W, C)
-            alpha_t = self.alpha[targets]
-            if distance_map is not None:
-                print("Using label uncertainty with focal loss.")
-                # Apply distance map to alpha
-                alpha_t = alpha_t * distance_map
-
-            ce_loss = alpha_t.unsqueeze(-1) * ce_loss
-
-        # Apply focal loss weight
-        loss = focal_weight.unsqueeze(-1) * ce_loss
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        return loss
-
-    def forward(self, inputs, targets, pixel_distances=None):
-
-        num_classes = inputs.shape[1]
-
-        # we need to make sure to have inputs of shape (B, H, W, C)
-        if inputs.shape[-1] != num_classes:
-            inputs = inputs.permute(0, 2, 3, 1)
-
-        return self.focal_loss_multiclass(inputs, targets, num_classes=num_classes, distance_map=pixel_distances)

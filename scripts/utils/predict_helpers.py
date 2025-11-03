@@ -5,6 +5,7 @@ import cv2
 import torch
 from .preprocess_helpers import expand_greyscale_channels, crop_center_square, get_preprocessing
 import segmentation_models_pytorch as smp
+from models.smp.build_rs_models import create_model_rs
 
 def label_to_pixelvalue_with_uncertainty(image):
     """
@@ -106,6 +107,7 @@ def predict_image_autosam(
     img,
     im_size,
     weights,
+    pretraining="sa-1b",
     autosam_size="vit_b",
     save_path=None,
     normalize=False,
@@ -125,7 +127,7 @@ def predict_image_autosam(
     model = autosam[autosam_size](num_classes=3, checkpoint=model_checkpoint)
     model = model.cuda(0)
 
-    preprocessing = get_preprocessing()
+    preprocessing = get_preprocessing(pretraining=pretraining)
 
     # load model weights
     if not no_finetune:
@@ -156,21 +158,25 @@ def predict_image_autosam(
         cv2.imwrite(save_path, mask)
     return mask, probabilities
 
+
 def predict_image_smp(
     arch,
     img,
     im_size,
     weights,
+    pretraining="imagenet",
     save_path=None,
     normalize=False,
-    no_finetune=False,
+    no_finetune=False
 ):
-    model = smp.create_model(
+    # NOTE: we can load imagenet weights here because we will overwrite them with our fine-tuned weights right after
+    model = create_model_rs(
         arch=arch,
-        encoder_name='resnet34',
-        encoder_weights='imagenet',
+        encoder_name="resnet34",
+        pretrain="aid",
         in_channels=3,
         classes=3,
+        get_features=False
     )
     model = model.cuda(0)
 
@@ -179,7 +185,7 @@ def predict_image_smp(
         model.load_state_dict(torch.load(weights))
 
     preprocessing_fn = smp.encoders.get_preprocessing_fn("resnet34", pretrained="imagenet")
-    preprocessing = get_preprocessing()
+    preprocessing = get_preprocessing(pretraining=pretraining)
 
     # crop the image to be predicted to a size that is divisible by the patch size used
     if im_size == 480:
@@ -197,6 +203,45 @@ def predict_image_smp(
     if save_path is not None:
         cv2.imwrite(save_path, mask)
     return mask, probabilities
+
+def extract_features(
+    arch,
+    img,
+    im_size,
+    weights,
+    pretraining="imagenet",
+    save_path=None,
+    normalize=False,
+    no_finetune=False,
+    get_features=True
+):
+    # NOTE: we can load imagenet weights here because we will overwrite them with our fine-tuned weights right after
+    model = create_model_rs(
+        arch=arch,
+        encoder_name="resnet34",
+        pretrain="aid",
+        in_channels=3,
+        classes=3,
+        get_features=get_features
+    )
+    model = model.cuda(0)
+
+    # load model weights
+    if not no_finetune:
+        model.load_state_dict(torch.load(weights))
+
+    preprocessing_fn = smp.encoders.get_preprocessing_fn("resnet34", pretrained="imagenet")
+    preprocessing = get_preprocessing(pretraining=pretraining)
+
+    # crop the image to be predicted to a size that is divisible by the patch size used
+    if im_size == 480:
+        preprocessed = preprocess_prediction(
+            img, model_preprocessing=preprocessing, normalize=normalize, preprocessing_fn=preprocessing_fn
+        )
+        _, features = model.forward(preprocessed, return_features=True)
+    else:
+        raise NotImplementedError("Only 480x480 images are supported for now.")
+    return features
 
 def calculate_mpf(dir):
 

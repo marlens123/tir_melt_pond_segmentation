@@ -14,6 +14,7 @@ from .utils.data import Dataset
 from .utils.preprocess_helpers import get_preprocessing
 from .utils.train_helpers import compute_class_weights, set_seed
 from models.AutoSAM.models.build_autosam_seg_model import sam_seg_model_registry
+import csv
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -27,6 +28,12 @@ parser.add_argument(
 )
 parser.add_argument(
     "--wandb_entity", type=str, default="sea-ice"
+)
+parser.add_argument(
+    "--loss_fn", type=str, default=None
+)
+parser.add_argument(
+    "--arch", type=str, default="AutoSAM"
 )
 
 args = parser.parse_args() 
@@ -47,21 +54,21 @@ autosam_sweep_configuration = {
 }
 
 final_autosam_sweep_configuration = {
-    "name": "sweep_autosam",
+    "name": f"sweep_autosam_{pretrain}_{args.loss_fn}",
     "method": "random",
     "metric": {"goal": "maximize", "name": "val_melt_pond_iou"},
     "parameters": {
         "im_size": {"values": [480]},
         "learning_rate": {"values": [0.0005]},
-        "batch_size": {"values": [1]},
+        "batch_size": {"values": [4]},
         "optimizer": {"values": ["Adam"]},
-        "weight_decay": {"values": [0.001]},
+        "weight_decay": {"values": [0.00001]},
         "loss_fn": {"values": ["dice_ce"]},
     },
 }
 
 final_autosam_sweep_configuration_no = {
-    "name": "sweep_autosam",
+    "name": f"sweep_autosam_{pretrain}_{args.loss_fn}",
     "method": "random",
     "metric": {"goal": "maximize", "name": "val_melt_pond_iou"},
     "parameters": {
@@ -108,7 +115,7 @@ def train_autosam(num, sweep_id, sweep_run_name, config, train_loader, test_load
             checkpoint=None,
         )
     else:
-        model_checkpoint = "models/autosam/segment_anything_checkpoints/sam_vit_b_01ec64.pth"
+        model_checkpoint = "pretraining_checkpoints/segment_anything/sam_vit_b_01ec64.pth"
         model = sam_seg_model_registry["vit_b"](
             num_classes=cfg_model["num_classes"],
             checkpoint=model_checkpoint,
@@ -158,20 +165,26 @@ def train_autosam(num, sweep_id, sweep_run_name, config, train_loader, test_load
             epoch,
             cfg_model,
             class_weights_np=class_weights_np,
-            loss_fn=config['loss_fn']
+            loss_fn=args.loss_fn if args.loss_fn is not None else config['loss_fn'],
         )
-    _, val_miou, val_mp_iou, val_oc_iou, val_si_iou, precision, recall, precision_macro, recall_macro, roc_auc = autosam_validate(test_loader, model, epoch, scheduler, cfg_model)
+    _, val_miou, val_mp_iou, val_oc_iou, val_si_iou, y_true, y_pred, precision, recall, precision_macro, recall_macro, precision_micro, recall_micro, precision_weighted, recall_weighted, roc_auc, auc_pr, roc_curves = autosam_validate(test_loader, model, epoch, scheduler, cfg_model)
 
     precision_mp = precision[0]
     precision_si = precision[1]
     precision_oc = precision[2]
     recall_mp = recall[0]
     recall_si = recall[1]
-    recall_oc = recall[2]    
+    recall_oc = recall[2]  
+    roc_auc_mp = roc_auc[0]
+    roc_auc_si = roc_auc[1]
+    roc_auc_oc = roc_auc[2]
+    auc_pr_mp = auc_pr[0]
+    auc_pr_si = auc_pr[1]
+    auc_pr_oc = auc_pr[2]  
 
-    run.log(dict(val_mean_iou=val_miou, val_melt_pond_iou=val_mp_iou, val_ocean_iou=val_oc_iou, val_sea_ice_iou=val_si_iou, precision_mp=precision_mp, precision_si=precision_si, precision_oc=precision_oc, recall_mp=recall_mp, recall_si=recall_si, recall_oc=recall_oc, precision_macro=precision_macro, recall_macro=recall_macro, roc_auc=roc_auc))
+    run.log(dict(val_mean_iou=val_miou, val_melt_pond_iou=val_mp_iou, val_ocean_iou=val_oc_iou, val_sea_ice_iou=val_si_iou, precision_mp=precision_mp, precision_si=precision_si, precision_oc=precision_oc, recall_mp=recall_mp, recall_si=recall_si, recall_oc=recall_oc, precision_macro=precision_macro, recall_macro=recall_macro, precision_micro=precision_micro, recall_micro=recall_micro, precision_weighted=precision_weighted, recall_weighted=recall_weighted, roc_auc_mp=roc_auc_mp, roc_auc_si=roc_auc_si, roc_auc_oc=roc_auc_oc, auc_pr_mp=auc_pr_mp, auc_pr_si=auc_pr_si, auc_pr_oc=auc_pr_oc))
     run.finish()
-    return val_miou, val_mp_iou, val_oc_iou, val_si_iou, precision, recall, precision_macro, recall_macro, roc_auc
+    return val_miou, val_mp_iou, val_oc_iou, val_si_iou, precision, recall, precision_macro, recall_macro, roc_auc, auc_pr, roc_curves
 
 
 def cross_validate_autosam():
@@ -220,7 +233,15 @@ def cross_validate_autosam():
     metrics_oc_recall = []
     metrics_precision_macro = []
     metrics_recall_macro = []
-    metrics_roc_auc = []
+    metrics_mp_roc_auc = []
+    metrics_si_roc_auc = []
+    metrics_oc_roc_auc = []
+    metrics_mp_auc_pr = []
+    metrics_si_auc_pr = []
+    metrics_oc_auc_pr = []
+    roc_curve_params_mp = []
+    roc_curve_params_si = []
+    roc_curve_params_oc = []
 
     for num, (train, test) in enumerate(kfold.split(X, y)):
         train_dataset = Dataset(cfg_model, cfg_training, mode="train", args=args, images=X[train], masks=y[train], preprocessing=get_preprocessing(pretraining=cfg_model["pretrain"]))
@@ -236,7 +257,7 @@ def cross_validate_autosam():
             test_dataset, batch_size=1, shuffle=False, num_workers=0
         )
         reset_wandb_env()
-        val_miou, val_mp_iou, val_oc_iou, val_si_iou, precision, recall, precision_macro, recall_macro, roc_auc = train_autosam(
+        val_miou, val_mp_iou, val_oc_iou, val_si_iou, precision, recall, precision_macro, recall_macro, roc_auc, auc_pr, roc_curves = train_autosam(
             sweep_id=sweep_id,
             num=num,
             sweep_run_name=sweep_run_name,
@@ -251,15 +272,93 @@ def cross_validate_autosam():
         metrics_mp_iou.append(val_mp_iou)
         metrics_oc_iou.append(val_oc_iou)
         metrics_si_iou.append(val_si_iou)
-        metrics_mp_precision.append(precision[0])
-        metrics_si_precision.append(precision[1])
-        metrics_oc_precision.append(precision[2])
-        metrics_mp_recall.append(recall[0])
-        metrics_si_recall.append(recall[1])
-        metrics_oc_recall.append(recall[2])
+        metrics_mp_precision.append(precision[0].item())
+        metrics_si_precision.append(precision[1].item())
+        metrics_oc_precision.append(precision[2].item())
+        metrics_mp_recall.append(recall[0].item())
+        metrics_si_recall.append(recall[1].item())
+        metrics_oc_recall.append(recall[2].item())
         metrics_precision_macro.append(precision_macro)
         metrics_recall_macro.append(recall_macro)
-        metrics_roc_auc.append(roc_auc)
+        metrics_mp_roc_auc.append(roc_auc[0])
+        metrics_si_roc_auc.append(roc_auc[1])
+        metrics_oc_roc_auc.append(roc_auc[2])
+        metrics_mp_auc_pr.append(auc_pr[0])
+        metrics_si_auc_pr.append(auc_pr[1])
+        metrics_oc_auc_pr.append(auc_pr[2])
+        roc_curve_params_mp.append(roc_curves[0])
+        roc_curve_params_si.append(roc_curves[1])
+        roc_curve_params_oc.append(roc_curves[2])
+
+    # create results directory if it does not exist
+    if not os.path.exists("results"):
+        os.makedirs("results")
+
+    # add results to a final csv file
+    if not os.path.exists("results/final_metrics"):
+        os.makedirs("results/final_metrics")
+
+    # only create the final_metrics_.txt file once
+    if not os.path.exists(f"results/final_metrics/final_metrics_.txt"):
+        with open(f"results/final_metrics/final_metrics_.txt", "w") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                "Model"
+                "val_melt_pond_iou",
+                "val_mean_iou",
+                "val_ocean_iou",
+                "val_sea_ice_iou",
+                "val_melt_pond_precision",
+                "val_sea_ice_precision",
+                "val_ocean_precision",
+                "val_melt_pond_recall",
+                "val_sea_ice_recall",
+                "val_ocean_recall",
+                "val_precision_macro",
+                "val_recall_macro",
+                "val_melt_pond_roc_auc",
+                "val_sea_ice_roc_auc",
+                "val_ocean_roc_auc",
+                "val_melt_pond_auc_pr",
+                "val_sea_ice_auc_pr",
+                "val_ocean_auc_pr",
+            ]
+        )
+    # else only append to the existing file
+    with open(f"results/final_metrics/final_metrics_.txt", "a") as f:
+        writer = csv.writer(f)
+        # add the average across folds to the txt file
+        writer.writerow(
+            [
+                f"{args.arch}_{args.seed}_{cfg_model['pretrain']}_{args.loss_fn}",
+                sum(metrics_mp_iou) / len(metrics_mp_iou),
+                sum(metrics_miou) / len(metrics_miou),
+                sum(metrics_oc_iou) / len(metrics_oc_iou),
+                sum(metrics_si_iou) / len(metrics_si_iou),
+                sum(metrics_mp_precision) / len(metrics_mp_precision),
+                sum(metrics_si_precision) / len(metrics_si_precision),
+                sum(metrics_oc_precision) / len(metrics_oc_precision),
+                sum(metrics_mp_recall) / len(metrics_mp_recall),
+                sum(metrics_si_recall) / len(metrics_si_recall),
+                sum(metrics_oc_recall) / len(metrics_oc_recall),
+                sum(metrics_precision_macro) / len(metrics_precision_macro),
+                sum(metrics_recall_macro) / len(metrics_recall_macro),
+                sum(metrics_mp_roc_auc) / len(metrics_mp_roc_auc),
+                sum(metrics_si_roc_auc) / len(metrics_si_roc_auc),
+                sum(metrics_oc_roc_auc) / len(metrics_oc_roc_auc),
+                sum(metrics_mp_auc_pr) / len(metrics_mp_auc_pr),
+                sum(metrics_si_auc_pr) / len(metrics_si_auc_pr),
+                sum(metrics_oc_auc_pr) / len(metrics_oc_auc_pr),
+            ]
+        )
+
+    for fold_params in range(len(roc_curve_params_mp)):
+        # store roc curve parameters per fold as npy files
+        np.save(f"results/roc_curves/roc_curve_params_mp_{args.arch}_seed_{args.seed}_fold_{fold_params}_{cfg_model['pretrain']}_{args.loss_fn}.npy", np.array(roc_curve_params_mp[fold_params], dtype=object))
+        #np.save(f"results/roc_curves/roc_curve_params_si_{args.arch}_seed_{args.seed}_fold_{fold_params}_{cfg_model['pretrain']}_{args.loss_fn}.npy", np.array(roc_curve_params_si[fold_params], dtype=object))
+        #np.save(f"results/roc_curves/roc_curve_params_oc_{args.arch}_seed_{args.seed}_fold_{fold_params}_{cfg_model['pretrain']}_{args.loss_fn}.npy", np.array(roc_curve_params_oc[fold_params], dtype=object))
+
 
     # resume the sweep run
     sweep_run = wandb.init(id=sweep_run_id, resume="must")
@@ -277,7 +376,12 @@ def cross_validate_autosam():
             "recall_oc": sum(metrics_oc_recall) / len(metrics_oc_recall),
             "precision_macro": sum(metrics_precision_macro) / len(metrics_precision_macro),
             "recall_macro": sum(metrics_recall_macro) / len(metrics_recall_macro),
-            "roc_auc": sum(metrics_roc_auc) / len(metrics_roc_auc)
+            "val_melt_pond_roc_auc": sum(metrics_mp_roc_auc) / len(metrics_mp_roc_auc),
+            "val_sea_ice_roc_auc": sum(metrics_si_roc_auc) / len(metrics_si_roc_auc),
+            "val_ocean_roc_auc": sum(metrics_oc_roc_auc) / len(metrics_oc_roc_auc),
+            "val_melt_pond_auc_pr": sum(metrics_mp_auc_pr) / len(metrics_mp_auc_pr),
+            "val_sea_ice_auc_pr": sum(metrics_si_auc_pr) / len(metrics_si_auc_pr),
+            "val_ocean_auc_pr": sum(metrics_oc_auc_pr) / len(metrics_oc_auc_pr),
         }
     )
 

@@ -6,7 +6,7 @@ import netCDF4
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
-from .utils.predict_helpers import calculate_mpf, filter_and_calculate_mpf, predict_image_autosam, predict_image_smp, crop_center_square, label_to_pixelvalue, label_to_pixelvalue_with_uncertainty, predict_image_smp
+from .utils.predict_helpers import calculate_mpf, filter_and_calculate_mpf, predict_image_autosam, predict_image_smp, crop_center_square, label_to_pixelvalue, label_to_pixelvalue_with_uncertainty, predict_image_smp, extract_features
 
 
 # TO-DO: clean up arguments and prevent errors
@@ -116,6 +116,11 @@ parser.add_argument(
     action="store_true",
     help="Plot masks with uncertainty.",
 )
+parser.add_argument(
+    "--get_features",
+    default=False,
+    action="store_true",
+)
 
 
 def main():
@@ -200,13 +205,13 @@ def main():
 
             if file.endswith(".png"):
                 img = cv2.imread(os.path.join(args.preprocessed_path, file), 0)
-                num = int(file.split(".")[0])
 
                 if args.arch == "AutoSAM":
                     masks[idx], probabilities[idx] = predict_image_autosam(
                         img=img,
                         im_size=480,
                         weights=args.weights_path,
+                        pretraining="sa-1b",
                         autosam_size=args.autosam_size,
                         save_path=os.path.join(
                             args.predicted_path, "raw/{}.png".format(id)
@@ -220,6 +225,7 @@ def main():
                         img=img,
                         im_size=480,
                         weights=args.weights_path,
+                        pretraining="aid",
                         save_path=os.path.join(
                             args.predicted_path, "raw/{}.png".format(id)
                         ),
@@ -229,6 +235,36 @@ def main():
         os.makedirs(os.path.join(args.predicted_path, "np/"), exist_ok=True)
         np.save(os.path.join(args.predicted_path, "np/", "masks.npy"), np.array(masks))
         np.save(os.path.join(args.predicted_path, "np/", "probabilities.npy"), np.array(probabilities))
+
+    if args.get_features:
+        assert args.arch != "AutoSAM", "Feature extraction not implemented for AutoSAM."
+        print("Start extracting features...")
+        features = np.zeros((len(os.listdir(args.preprocessed_path)), 512, 15, 15)).astype(np.uint8)
+
+        # extract surface masks from images
+        for idx, file in enumerate(os.listdir(args.preprocessed_path)):
+            print(features.dtype)
+            os.makedirs(os.path.join(args.predicted_path, "raw/"), exist_ok=True)
+            id = file.split(".")[0]
+
+            if file.endswith(".png"):
+                img = cv2.imread(os.path.join(args.preprocessed_path, file), 0)
+
+                element = extract_features(
+                    arch=args.arch,
+                    img=img,
+                    im_size=480,
+                    weights=args.weights_path,
+                    pretraining="aid",
+                    save_path=os.path.join(
+                        args.predicted_path, "raw/{}.png".format(id)
+                    ),
+                    normalize=args.normalize,
+                    no_finetune=args.no_finetune,
+                )[-1].detach().cpu().numpy()  # get the deepest features
+                features[idx] = element
+        os.makedirs(os.path.join(args.predicted_path, "np/"), exist_ok=True)
+        np.save(os.path.join(args.predicted_path, "np/", "features.npy"), np.array(features))
 
     # optionally convert to grayscale images for visibility
     if not args.skip_convert_to_grayscale:
@@ -340,11 +376,43 @@ def main():
     if not args.skip_mpf:
         masks_path = os.path.join(args.predicted_path, "np/", "masks.npy")
         probabilities_path = os.path.join(args.predicted_path, "np/", "probabilities.npy")
+
+        # USED FOR MODEL CONFIDENCE ANALYSIS
+        low_conf_threshold = 0.6
+        probabilities = np.load(probabilities_path)
+    
+        pred = probabilities.argmax(axis=1)  # (n_samples, 480, 480)
+
+        mp_probability_per_image = []
+        si_probability_per_image = []
+        oc_probability_per_image = []
+        low_conf_pixels = []
+
+        for i in range(probabilities.shape[0]):
+            img_probs = probabilities[i]  # (3, 480, 480)
+            img_pred = pred[i]            # (480, 480)
+
+            mp_mask = img_pred == 0
+            si_mask = img_pred == 1
+            oc_mask = img_pred == 2
+
+            # mean probability of each predicted class
+            mp_probability_per_image.append(img_probs[0, mp_mask].mean() if mp_mask.any() else np.nan)
+            si_probability_per_image.append(img_probs[1, si_mask].mean() if si_mask.any() else np.nan)
+            oc_probability_per_image.append(img_probs[2, oc_mask].mean() if oc_mask.any() else np.nan)
+
+            low_conf_pixels.append((probabilities[i].max(axis=1) < low_conf_threshold).sum())
+
+        mp_probability_per_image = np.array(mp_probability_per_image)
+        si_probability_per_image = np.array(si_probability_per_image)
+        oc_probability_per_image = np.array(oc_probability_per_image)
+
+        import pdb; pdb.set_trace()
         
         # make sure to not repeat calculations if output nc file was created
         if not args.create_output_nc:
             _, mean_probabilities = filter_and_calculate_mpf(
-                masks_path, probabilities_path, _
+                masks_path, probabilities_path, 0.88
             )
             fractions = calculate_mpf(masks_path)
 
@@ -352,7 +420,7 @@ def main():
         lats = ds.variables["lat"]
         lons = ds.variables["lon"]
 
-        headers = ["flight_date", "lat", "lon", "mpf", "ocf", "sif", "mean_probability_per_img"]
+        headers = ["flight_date", "lat", "lon", "mpf", "ocf", "sif", "mp_probability_per_image", "si_probability_per_image", "oc_probability_per_image", "no_low_confidence_pixels", "mean_probability_per_img"]
 
         mpf_dir = os.path.join(output_path, "output.csv")
 
@@ -374,7 +442,11 @@ def main():
                 mpf = fractions[i][0]
                 ocf = fractions[i][1]
                 sif = fractions[i][2]
-                writer.writerow([formatted_date, lat, lon, mpf, ocf, sif, mean_probabilities[i]])
+                mp_prob = mp_probability_per_image[i]
+                si_prob = si_probability_per_image[i]
+                oc_prob = oc_probability_per_image[i]
+                low_conf_pixels_im = (probabilities[i].max(axis=0) < low_conf_threshold).sum()
+                writer.writerow([formatted_date, lat, lon, mpf, ocf, sif, mp_prob, si_prob, oc_prob, low_conf_pixels_im, mean_probabilities[i]])
 
     print("Process ended.")
 

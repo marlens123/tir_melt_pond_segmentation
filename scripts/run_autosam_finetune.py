@@ -25,8 +25,9 @@ from models.AutoSAM.models.build_autosam_seg_model import sam_seg_model_registry
 from torch.utils.data import DataLoader
 from .utils.data import Dataset
 from .utils.preprocess_helpers import get_preprocessing
-from .utils.train_helpers import compute_class_weights, set_seed, FocalLoss
-from sklearn.metrics import roc_auc_score
+from .utils.train_helpers import compute_class_weights, set_seed
+from .utils.losses import FocalLoss
+from sklearn.metrics import roc_auc_score, average_precision_score, roc_curve
 
 import wandb
 
@@ -234,7 +235,7 @@ def main_worker(args, config):
             class_weights_np=class_weights_np,
             loss_fn=args.loss_fn
         )
-        _, _, mp_iou, _, _, _, _, _, _, _ = validate(test_loader, model, epoch, scheduler, cfg_model, args)
+        _, _, mp_iou, _, _, _, _, _, _, _, _, _, _, _, _, _, _ = validate(test_loader, model, epoch, scheduler, cfg_model, args)
 
         # save model when melt pond IoU improved
         if mp_iou > best_mp_iou:
@@ -273,7 +274,7 @@ def train(
         use_wandb = args.use_wandb
 
     dice_loss = SoftDiceLoss(
-        batch_dice=True, do_bg=False, rebalance_weights=class_weights_np
+        batch_dice=True, do_bg=True, rebalance_weights=None
     )
     ce_loss = torch.nn.CrossEntropyLoss(weight=class_weights)
     focal_loss = FocalLoss(alpha=class_weights, gamma=2, reduction='mean')
@@ -352,7 +353,7 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
     tp = [0] * cfg_model["num_classes"]
     fp = [0] * cfg_model["num_classes"]
     fn = [0] * cfg_model["num_classes"]
-    dice_loss = SoftDiceLoss(batch_dice=True, do_bg=False)
+    dice_loss = SoftDiceLoss(batch_dice=True, do_bg=True)
     model.eval()
 
     if args is None:
@@ -455,6 +456,9 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
     precision_micro = (tp_total / (tp_total + fp_total).clamp(min=1)).item()
     recall_micro = (tp_total / (tp_total + fn_total).clamp(min=1)).item()
 
+    precision_weighted = (precision * (tp + fn).float() / (tp + fn).float().sum()).sum().item()
+    recall_weighted = (recall * (tp + fn).float() / (tp + fn).float().sum()).sum().item()
+
     if use_wandb:
         wandb.log({"epoch": epoch, "val_precision_mp": precision[0].item()})
         wandb.log({"epoch": epoch, "val_precision_si": precision[1].item()})
@@ -468,23 +472,35 @@ def validate(val_loader, model, epoch, scheduler, cfg_model, args=None):
         wandb.log({"epoch": epoch, "val_recall_micro": recall_micro})
 
     ######################
-
     # ROC AUC
     ######################
     y_scores = np.concatenate(prob_coll, axis=0)
     y_true = np.concatenate(label_coll, axis=0)
 
     roc_auc_scores = []
+    roc_curves = []
 
     for c in range(cfg_model["num_classes"]):
         y_true_c = (y_true == c).flatten()
         y_scores_c = y_scores[:, c].flatten()
         roc_auc = roc_auc_score(y_true_c, y_scores_c)
         roc_auc_scores.append(roc_auc)
+        fpr, tpr, thresholds = roc_curve(y_true_c, y_scores_c)
+        roc_curves.append((fpr, tpr, thresholds))
 
     ######################
 
-    return np.mean(loss_list), np.mean(jac_mean), np.mean(jac_list_mp), np.mean(jac_list_oc), np.mean(jac_list_si), precision, recall, precision_macro, recall_macro, roc_auc_scores
+    # AUC-PR
+    ######################
+    auc_pr_scores = []
+
+    for c in range(cfg_model["num_classes"]):
+        y_true_c = (y_true == c).flatten()
+        y_scores_c = y_scores[:, c].flatten()
+        ap = average_precision_score(y_true_c, y_scores_c)
+        auc_pr_scores.append(ap)
+
+    return np.mean(loss_list), np.mean(jac_mean), np.mean(jac_list_mp), np.mean(jac_list_oc), np.mean(jac_list_si), label_coll, pred_coll, precision, recall, precision_macro, recall_macro, precision_micro, recall_micro, precision_weighted, recall_weighted, roc_auc_scores, auc_pr_scores, roc_curves
 
 
 if __name__ == "__main__":
